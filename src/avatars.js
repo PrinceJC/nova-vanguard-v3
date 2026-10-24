@@ -3,7 +3,9 @@
 // Avatar ids are unchanged so unlocks/selections carry over. Stats are identical for every hero;
 // weapon category only changes artwork and projectile visuals.
 const AVATARS = [
-  { id: "lumi", name: "Astra", title: "Sunrise Vanguard", cat: "cannon", unlock: 0, hair: "long", bangs: "swept", hc: ["#ff8a5c", "#ffd0a8", "#c4452e"], skin: "#f6dcc8", eye: "#f2a93b",
+  { id: "lumi", name: "Nova", title: "Silver Vanguard", cat: "shield", unlock: 0, hair: "long", bangs: "parted", hc: ["#dde4f0", "#ffffff", "#98a6c2"], skin: "#f6dfd0", eye: "#3a8cff",
+    out: ["#2a5ad8", "#eef3fb", "#7fd0ff", "#c3cede"], wc: ["#d8e0ee", "#1e3a8a", "#7fd0ff"], acc: "wingclip", shot: ["#8fd8ff", "#ffffff"], weaponName: "Vanguard aegis" },
+  { id: "astra", name: "Astra", title: "Sunrise Vanguard", cat: "cannon", unlock: 0, hair: "long", bangs: "swept", hc: ["#ff8a5c", "#ffd0a8", "#c4452e"], skin: "#f6dcc8", eye: "#f2a93b",
     out: ["#f4f6ff", "#2bb3a8", "#f2c14e", "#d99a2b"], wc: ["#f4f6ff", "#1f6f74", "#f2c14e"], acc: "star", shot: ["#7ff3e4", "#ffffff"], weaponName: "Dawnfire cannon" },
   { id: "nova", name: "Lumi", title: "Starlight Marksman", cat: "sniper", unlock: 0, hair: "sidetail", bangs: "swept", hc: ["#c9bde8", "#f2eeff", "#8f82c4"], skin: "#f6dcc8", eye: "#1fb5b8",
     out: ["#1f2a5c", "#eef1fb", "#8b5cf6", "#4a3b6b"], wc: ["#eef1fb", "#1f2a5c", "#8b5cf6"], acc: "clip", shot: ["#9ff3ff", "#ffffff"], weaponName: "Prism longrifle" },
@@ -43,11 +45,21 @@ const AVATARS = [
     out: ["#f0ecf8", "#3a5aa8", "#e0b84a", "#b8b4c8"], wc: ["#e0b84a", "#f0ecf8", "#3a5aa8"], acc: "halo", shot: ["#fff6c8", "#ffffff"], weaponName: "Aegis rifle" },
   { id: "luma", name: "Luma", title: "Eclipse Herald", cat: "cannon", unlock: 80, hair: "sidetail", bangs: "swept", hc: ["#3a2a5c", "#7a62b0", "#1e1436"], skin: "#f6dcc8", eye: "#c88cff",
     out: ["#120c20", "#c8b8f0", "#c88cff", "#06040e"], wc: ["#2a2048", "#c8b8f0", "#c88cff"], acc: "horns", shot: ["#e4ccff", "#ffffff"], weaponName: "Umbra cannon" },
+  { id: "seraphine", name: "Seraphine", title: "Dawnwing Guardian", cat: "gun", board: "wings", unlock: 12, hair: "wavy", bangs: "parted", hc: ["#ffe6a8", "#fff8e0", "#d8a84a"], skin: "#f8e2d4", eye: "#e07ab8",
+    out: ["#fff8f0", "#f4c6dc", "#ffcf5c", "#e8b44a"], wc: ["#fff4e0", "#c47a9a", "#ffcf5c"], acc: "halo", shot: ["#ffe9b0", "#ffffff"], weaponName: "Radiant pistol" },
+  { id: "elara", name: "Elara", title: "Starlit Wandmage", cat: "wand", unlock: 22, hair: "bun", bangs: "swept", hc: ["#b48cff", "#e8dcff", "#6a48c0"], skin: "#f6dcc8", eye: "#5ef2c0",
+    out: ["#3a2a7a", "#efe8ff", "#5ef2c0", "#9a7ad8"], wc: ["#e8dcff", "#3a2a7a", "#5ef2c0"], acc: "witchhat", shot: ["#b8fff0", "#ffffff"], weaponName: "Comet wand" },
+  { id: "kai", name: "Kai", title: "Neon Skater", cat: "gun", board: "skate", unlock: 32, hair: "spiky", bangs: "spiky", hc: ["#3ad0a8", "#a8ffe8", "#1a7a62"], skin: "#c68a5e", eye: "#ffd34f",
+    out: ["#2a2a3e", "#ffd34f", "#ff5fa8", "#14141e"], wc: ["#3a3a54", "#ffd34f", "#ff5fa8"], acc: "headphones", shot: ["#ffe27a", "#ffffff"], weaponName: "Kickflip blaster" },
+  { id: "lyra", name: "Lyra", title: "Moonleaf Archer", cat: "bow", unlock: 42, hair: "braid", bangs: "parted", hc: ["#e8eef8", "#ffffff", "#a8b4cc"], skin: "#f3d2b8", eye: "#3fd47a",
+    out: ["#2e5a3a", "#e8f0d8", "#8ff0a8", "#c8d8b0"], wc: ["#c8d8b0", "#2e5a3a", "#8ff0a8"], acc: "leafcrown", shot: ["#d8ffe0", "#ffffff"], weaponName: "Moonleaf bow" },
+  { id: "rook", name: "Rook", title: "Iron Deadeye", cat: "sniper", heavy: true, unlock: 52, hair: "cap", bangs: "straight", hc: ["#2a2420", "#5a4a40", "#14100c"], skin: "#8d5a3b", eye: "#ff8a5c",
+    out: ["#4a4e5a", "#d8dce4", "#ff8a5c", "#2a2e38"], wc: ["#5a606e", "#2a2e38", "#ff8a5c"], acc: "scope", shot: ["#ffd8c0", "#ffffff"], weaponName: "Ironsight railgun" },
 ];
 const AVATAR_BY_ID = Object.fromEntries(AVATARS.map((a) => [a.id, a]));
-const WEAPON_CATS = { cannon: "Cannon", bow: "Bow", sniper: "Sniper rifle", gun: "Rifle / gun" };
+const WEAPON_CATS = { cannon: "Cannon", bow: "Bow", sniper: "Sniper rifle", gun: "Rifle / gun", shield: "Shield cannon", wand: "Magic wand" };
 function avatarUnlocked(av, completedCount) { return av.unlock === 0 || completedCount >= av.unlock; }
-const MUZZLES = { cannon: [95, 41], sniper: [99, 40], gun: [88, 41], bow: [72, 41] };   // projectile origin, sprite units
+const MUZZLES = { cannon: [95, 41], sniper: [99, 40], gun: [88, 41], bow: [72, 41], shield: [70, 43], wand: [66, 33] };   // projectile origin, sprite units
 const SPRITE_ANCHOR = [31, 41];                                                          // hitbox centre (chest)
 
 // ------------------------------------------------------------ SVG
@@ -73,6 +85,7 @@ function hairBack(a, p) {
     case "twintail": return `<path d="M20 13 Q6 16 5 31 Q6 40 11 45 Q10 33 17 24 Z" ${f}/><path d="M42 12 Q54 16 53 31 Q52 38 48 42 Q48 30 42 23 Z" ${f}/><path d="M15 17 Q8 25 8 35" fill="none" stroke="${l}" stroke-width="1.4" stroke-linecap="round"/>`;
     case "bob": return `<path d="M17 22 Q15 6 31 5 Q47 6 46 22 L46 33 Q41 31 39 28 L24 28 Q21 32 16 33 Z" ${f}/>`;
     case "long": return `<path d="M18 18 Q14 6 31 5 Q46 6 46 20 Q47 34 42 44 Q34 42 26 47 Q20 46 14 49 Q4 46 0 40 Q8 38 10 32 Q12 24 18 18 Z" ${f}/><path d="M20 28 Q14 36 6 41 M24 34 Q20 40 16 46" fill="none" stroke="${l}" stroke-width="1.3" stroke-linecap="round" opacity=".85"/>`;
+    case "wavy": return `<path d="M18 18 Q14 6 31 5 Q46 6 46 20 Q48 30 44 38 Q46 44 40 47 Q34 44 30 48 Q24 45 18 48 Q12 44 14 38 Q8 34 12 28 Q12 22 18 18 Z" ${f}/><path d="M18 30 Q14 36 18 42 M42 30 Q46 36 42 42" fill="none" stroke="${l}" stroke-width="1.2" stroke-linecap="round"/>`;
     case "spiky": return `<path d="M17 21 L10 12 L19 13 L16 3 L26 10 L31 1 L35 10 L44 4 L42 14 L51 13 L45 22 Z" ${f}/>`;
     case "bun": return `<circle cx="22" cy="7" r="6.5" ${f}/><path d="M18 5 Q21 2 25 4" fill="none" stroke="${l}" stroke-width="1.3"/>`;
     case "braid": { let s = ""; for (let i = 0; i < 6; i++) s += `<ellipse cx="${19 - i * 2.6}" cy="${26 + i * 4.2}" rx="3.7" ry="3.1" fill="url(#${p}h)" ${st(1.2)}/>`; return s + `<path d="M5 50 L3 54 L8 53 Z" fill="${a.out[2]}" ${st(1)}/>`; }
@@ -109,6 +122,11 @@ function accessory(a, p) {
     case "glasses": return `<circle cx="34" cy="25" r="4" fill="none" stroke="${OL}" stroke-width="1.3"/><circle cx="41.5" cy="25" r="3.6" fill="none" stroke="${OL}" stroke-width="1.3"/>`;
     case "feather": return `<path d="M20 12 Q12 4 10 -2 Q18 2 22 10 Z" fill="${acc}" ${st(1)}/>`;
     case "catears": return `<path d="M22 9 L21 -1 L29 5 Z M37 5 L44 -1 L43 9 Z" fill="${a.hc[0]}" ${st(1.2)}/><path d="M23 6 L22.5 2 L26 4.5 Z M40 4.5 L42.5 2 L42 6 Z" fill="#ff9ad5"/>`;
+    case "wingclip": return `<path d="M20 9 Q14 4 10 6 Q14 8 15 11 Q11 11 9 14 Q14 14 18 13 Z" fill="url(#${p}g)" ${st(0.9)}/><circle cx="20" cy="11" r="2" fill="${a.shot[0]}" ${st(0.8)}/>`;
+    case "witchhat": return `<path d="M17 12 Q31 6 46 11 Q40 4 36 -6 Q34 -9 30 -8 Q26 -2 22 4 Z" fill="${a.out[0]}" ${st(1.2)}/><path d="M17 12 Q31 6 46 11" fill="none" stroke="url(#${p}g)" stroke-width="2"/><path d="M33 -2 L34.2 0.6 L37 1 L35 2.8 L35.6 5.6 L33 4.2 L30.4 5.6 L31 2.8 L29 1 L31.8 .6 Z" fill="${a.shot[0]}"/>`;
+    case "headphones": return `<path d="M18 20 Q18 4 32 4 Q45 4 45 18" fill="none" stroke="${OL}" stroke-width="3"/><path d="M18 20 Q18 4 32 4 Q45 4 45 18" fill="none" stroke="${a.out[2]}" stroke-width="1.6"/><rect x="42" y="16" width="6" height="9" rx="2.5" fill="${a.out[1]}" ${st(1)}/>`;
+    case "leafcrown": return [0, 1, 2, 3].map((i) => `<path d="M${22 + i * 5} ${8 - (i % 2) * 2} q2 -5 5 -3 q-1 4 -5 3 Z" fill="${a.out[2]}" ${st(0.7)}/>`).join("");
+    case "scope": return `<path d="M30 20.6 L44 20.6 L44 23 L30 23 Z" fill="${OL}"/><circle cx="41" cy="25" r="3.4" fill="none" stroke="${a.out[2]}" stroke-width="1.4"/>`;
     case "horns": return `<path d="M24 8 Q20 0 24 -3 Q25 3 28 6 Z M38 6 Q42 0 40 -4 Q44 2 42 8 Z" fill="url(#${p}g)" ${st(1.1)}/>`;
   }
   return "";
@@ -133,6 +151,20 @@ function weapon(a, p, frame) {
 <path d="M85 34.2 L93 31.4 L97 41 L93 50.6 L85 47.8 L88 41 Z" ${G}/>
 <circle cx="38" cy="42" r="5.4" fill="url(#${p}c)"/><circle cx="38" cy="42" r="2.8" fill="${sh}" ${st(0.9)}/>
 <path d="M64 41 L84 41" stroke="${sh}" stroke-width="1.2" opacity=".85"/>`;
+  if (a.cat === "shield") return `
+<path d="M50 28 L66 30 Q70 42 66 54 L50 58 Q44 43 50 28 Z" ${W}/>
+<path d="M52 31 L64 32.6 Q67.4 42 64 51.6 L52 54.6 Q47.6 43 52 31 Z" fill="none" stroke="url(#${p}g)" stroke-width="1.6"/>
+<path d="M57 34 L58.4 43 L57 52 M51 43 L66 43" stroke="${d}" stroke-width="1.4" fill="none" opacity=".7"/>
+<path d="M50 28 L54 22 L58 29 Z M50 58 L54 64 L58 57 Z" fill="url(#${p}g)" ${st(1)}/>
+<circle cx="58" cy="43" r="5" fill="url(#${p}c)"/><circle cx="58" cy="43" r="3" fill="${sh}" ${st(1)}/>
+<path d="M64 41 L70 42 L70 44 L64 45 Z" fill="${d}" ${st(0.9)}/>
+<path d="M53 32 Q56 31 59 32.4" stroke="#ffffff" stroke-width="1.2" opacity=".75" fill="none"/>`;
+  if (a.cat === "wand") return `
+<path d="M45 45 L62 35" stroke="${OL}" stroke-width="3.4" stroke-linecap="round"/><path d="M45 45 L62 35" stroke="url(#${p}w)" stroke-width="2" stroke-linecap="round"/>
+<path d="M49 42.6 L52 40.8" stroke="url(#${p}g)" stroke-width="2.6" stroke-linecap="round"/>
+<circle cx="64" cy="34" r="6" fill="url(#${p}c)"/>
+<path d="M64 28.6 L65.6 32.4 L69.4 33 L66.4 35.4 L67.2 39.2 L64 37 L60.8 39.2 L61.6 35.4 L58.6 33 L62.4 32.4 Z" fill="${sh}" ${st(0.9)}/>
+<circle cx="68" cy="29" r=".9" fill="#fff"/><circle cx="59" cy="30" r=".7" fill="#fff"/>`;
   if (a.cat === "sniper") return `
 <path d="M27 37.6 L38 36.4 L40 42.4 L29 44.4 Q26 41 27 37.6 Z" ${D}/>
 <path d="M37 36.6 L66 36.2 L68 42.2 L38 43 Z" ${W}/>
@@ -157,16 +189,23 @@ ${drawn ? `<path d="M62 22 L44 41 L62 60" stroke="#f6f2ff" stroke-width=".8" fil
 <path d="M44.6 41 L41 38.8 L43.4 41 L41 43.2 Z" fill="${acc}"/><path d="M48 41 L70 41" stroke="${sh}" stroke-width=".7" opacity=".85"/>`
     : `<path d="M62 22 Q63.8 41 62 60" stroke="#f6f2ff" stroke-width=".8" fill="none"/>`}`;
 }
-function hands(a) { return { cannon: [44, 46], sniper: [42, 43], gun: [46, 44], bow: [66, 41] }[a.cat]; }
+function hands(a) { return { cannon: [44, 46], sniper: [42, 43], gun: [46, 44], bow: [66, 41], shield: [52, 46], wand: [46, 44] }[a.cat]; }
 
 function avatarSVG(a, frame = "idle", view = "game") {
   const p = a.id + frame[0] + view[0], [m, inner, acc, trim] = a.out, sh = a.shot[0];
   const thr = frame === "fire" ? 5 : 4;
   const flow = a.hair === "long" || a.hair === "sidetail" || a.hair === "twintail" || a.hair === "wolf" ? `<path d="M18 14 Q2 12 -1 22 Q4 20 8 24 Q0 28 -2 36 Q6 31 12 32 Q8 38 9 44 Q14 34 20 26 Z" fill="url(#${p}h)" ${st(1.2)}/><path d="M14 16 Q4 18 2 24 M12 26 Q5 30 3 34" fill="none" stroke="${a.hc[1]}" stroke-width="1.3" stroke-linecap="round"/>` : "";
-  const board = `<path d="M2 57 Q6 52 16 52 L84 51 Q94 51 98 55 Q92 59 84 59 L14 60 Q5 60 2 57 Z" fill="url(#${p}m)" ${st(1.5)}/>
+  const boardKind = a.board || "glider";
+  const skate = `<path d="M14 58 Q12 54 18 54 L50 53.6 Q56 53.6 56 57 Q55 60 50 60 L19 60.4 Q14 60.4 14 58 Z" fill="url(#${p}m)" ${st(1.4)}/>
+<path d="M19 55.6 L50 55.2" stroke="url(#${p}g)" stroke-width="1.6"/><path d="M24 54 L28 51 L32 54 Z" fill="${a.out[2]}" ${st(0.8)}/>
+<ellipse cx="22" cy="62" rx="${frame === "fire" ? 5 : 4}" ry="1.8" fill="url(#${p}c)"/><ellipse cx="48" cy="62" rx="${frame === "fire" ? 5 : 4}" ry="1.8" fill="url(#${p}c)"/>
+<circle cx="22" cy="60.6" r="1.6" fill="${sh}" ${st(0.7)}/><circle cx="48" cy="60.6" r="1.6" fill="${sh}" ${st(0.7)}/>`;
+  const wingFeet = `<path d="M26 61 l2 4 l2 -4 M33 61 l2 4 l2 -4" stroke="${sh}" stroke-width="1.2" fill="none" opacity=".8"/>`;
+  const glider = `<path d="M2 57 Q6 52 16 52 L84 51 Q94 51 98 55 Q92 59 84 59 L14 60 Q5 60 2 57 Z" fill="url(#${p}m)" ${st(1.5)}/>
 <path d="M14 53.6 L84 52.9" stroke="url(#${p}g)" stroke-width="1.6"/><path d="M20 57.4 L80 57" stroke="#ffffff" stroke-width=".9" opacity=".45"/>
 <path d="M40 52 L46 47 L52 52 Z M62 51.6 L66 48 L70 51.4 Z" fill="url(#${p}g)" ${st(1)}/>
 <ellipse cx="2.6" cy="56" rx="${frame === "fire" ? 6 : 4.6}" ry="2.8" fill="url(#${p}c)"/><ellipse cx="2.4" cy="56" rx="2" ry="1.2" fill="#ffffff"/>`;
+  const board = boardKind === "wings" ? wingFeet : boardKind === "skate" ? skate : glider;
   const legs = `<ellipse cx="28" cy="${60 + thr / 4}" rx="2.4" ry="${thr / 2 + 1}" fill="${sh}" opacity=".9"/><ellipse cx="35" cy="${60 + thr / 4}" rx="2.4" ry="${thr / 2 + 1}" fill="${sh}" opacity=".9"/>
 <path d="M25.5 49 L30.5 49 L30.5 57.5 Q28 59.2 25.5 57.5 Z" fill="url(#${p}m)" ${st(1.3)}/><path d="M32.5 49 L37.5 49 L37.5 57.5 Q35 59.2 32.5 57.5 Z" fill="url(#${p}m)" ${st(1.3)}/>
 <rect x="25.5" y="54.4" width="5" height="1.8" fill="url(#${p}g)"/><rect x="32.5" y="54.4" width="5" height="1.8" fill="url(#${p}g)"/>`;
@@ -185,14 +224,26 @@ function avatarSVG(a, frame = "idle", view = "game") {
   const arm = `<path d="M30 37 Q${(30 + hx[0]) / 2} ${hx[1] + 2} ${hx[0] - 2} ${hx[1]}" fill="none" stroke="${OL}" stroke-width="5.4" stroke-linecap="round"/><path d="M30 37 Q${(30 + hx[0]) / 2} ${hx[1] + 2} ${hx[0] - 2} ${hx[1]}" fill="none" stroke="${shade(m, -0.15)}" stroke-width="3.2" stroke-linecap="round"/><circle cx="${hx[0]}" cy="${hx[1]}" r="2.6" fill="url(#${p}s)" ${st(1)}/>`;
   const drawArm = a.cat === "bow" ? `<path d="M33 38 Q${frame === "fire" ? "38 37 40 39" : "40 39 44 41"}" fill="none" stroke="${OL}" stroke-width="5" stroke-linecap="round"/><path d="M33 38 Q${frame === "fire" ? "38 37 40 39" : "40 39 44 41"}" fill="none" stroke="${shade(m, -0.15)}" stroke-width="3" stroke-linecap="round"/><circle cx="${frame === "fire" ? 40 : 44}" cy="${frame === "fire" ? 39 : 41}" r="2.3" fill="url(#${p}s)" ${st(0.9)}/>` : "";
   const [mx, my] = MUZZLES[a.cat];
-  const flash = frame === "fire" && a.cat !== "bow" ? `<path d="M${mx - 1} ${my} L${mx + 9} ${my - 4} L${mx + 6} ${my} L${mx + 9} ${my + 4} Z" fill="${sh}"/><circle cx="${mx}" cy="${my}" r="2.6" fill="#ffffff"/>` : "";
+  const flash = frame === "fire" && a.cat !== "bow" ? (a.heavy ? `<path d="M${mx - 1} ${my} L${mx + 14} ${my - 7} L${mx + 9} ${my} L${mx + 14} ${my + 7} Z" fill="${sh}"/><path d="M${mx + 2} ${my - 5} L${mx + 6} ${my} L${mx + 2} ${my + 5}" stroke="#fff" stroke-width="1" fill="none"/>` : `<path d="M${mx - 1} ${my} L${mx + 9} ${my - 4} L${mx + 6} ${my} L${mx + 9} ${my + 4} Z" fill="${sh}"/>`) + `<circle cx="${mx}" cy="${my}" r="2.6" fill="#ffffff"/>` : "";
   const body = defs(a, p) + flow + hairBack(a, p) + board + legs + torso + head + sideLock + bangs(a, p) + eyes(a, p, frame) + accessory(a, p) + weapon(a, p, frame) + arm + drawArm + flash;
   if (view === "portrait") return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="12 -5 40 40" width="40" height="40"><defs><radialGradient id="${p}bg" cx=".5" cy=".4"><stop offset="0" stop-color="${shade(m, 0.2)}"/><stop offset="1" stop-color="#0b1030"/></radialGradient></defs><rect x="12" y="-5" width="40" height="40" fill="url(#${p}bg)"/><circle cx="16" cy="0" r=".5" fill="#fff"/><circle cx="48" cy="3" r=".4" fill="#fff"/>${body}</svg>`;
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 104 70" width="104" height="70">${body}</svg>`;
 }
 
-function registerAvatarSprites() { for (const a of AVATARS) for (const f of ["idle", "fire", "hurt"]) SPRITE_SVG[`av_${a.id}_${f}`] = avatarSVG(a, f); }
+const WING_PIVOT = [24, 36];   // shoulder point the wings flap around (sprite units)
+const WING_VB = [-40, -34, 140, 100];   // wider canvas so the full wingspan fits; same units as the body sprite
+function wingSVG(a) {
+  const p = a.id + "wg", b = a.out[1], acc = a.out[2], O = "#141030";
+  const wing = (rot, sc, op) => `<g transform="translate(24 36) rotate(${rot}) scale(${sc}) translate(-26 -36)" opacity="${op}">
+<path d="M26 36 C14 26 4 16 -1 2 C5 5 11 6 15 11 C10 11 5 14 2 18 C9 18 14 20 18 24 C11 26 6 30 4 35 C11 34 17 35 22 38 C16 41 12 45 11 50 C17 47 22 44 27 41 Z" fill="url(#${p}f)" stroke="${O}" stroke-width="1.3" stroke-linejoin="round"/>
+<path d="M24 34 Q14 24 5 9 M22 31 Q14 24 7 19 M22 36 Q14 33 8 33 M24 39 Q18 43 14 47" stroke="#ffffff" stroke-width="1" fill="none" opacity=".75" stroke-linecap="round"/></g>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${WING_VB.join(" ")}" width="${WING_VB[2]}" height="${WING_VB[3]}"><defs><linearGradient id="${p}f" x1="1" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#ffffff"/><stop offset=".55" stop-color="${b}"/><stop offset="1" stop-color="${acc}"/></linearGradient></defs>
+${wing(14, 1.45, 0.75)}${wing(-4, 1.75, 1)}</svg>`;
+}
+function registerAvatarSprites() {
+  for (const a of AVATARS) { for (const f of ["idle", "fire", "hurt"]) SPRITE_SVG[`av_${a.id}_${f}`] = avatarSVG(a, f); if (a.board === "wings") SPRITE_SVG[`avw_${a.id}`] = wingSVG(a); }
+}
 const PORTRAIT_CACHE = {};
 function avatarPortrait(id) { if (!PORTRAIT_CACHE[id]) { const a = AVATAR_BY_ID[id] || AVATARS[0]; PORTRAIT_CACHE[id] = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(avatarSVG(a, "idle", "portrait")); } return PORTRAIT_CACHE[id]; }
 function avatarFull(id, frame = "idle") { const a = AVATAR_BY_ID[id] || AVATARS[0]; return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(avatarSVG(a, frame)); }
-if (typeof module === "object" && module.exports) module.exports = { AVATARS, avatarSVG, AVATAR_BY_ID, avatarUnlocked, MUZZLES, SPRITE_ANCHOR, WEAPON_CATS };
+if (typeof module === "object" && module.exports) module.exports = { AVATARS, avatarSVG, wingSVG, AVATAR_BY_ID, avatarUnlocked, MUZZLES, SPRITE_ANCHOR, WEAPON_CATS, WING_PIVOT, WING_VB };

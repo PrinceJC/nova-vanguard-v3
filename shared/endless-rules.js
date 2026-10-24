@@ -6,7 +6,7 @@
   if (typeof module === "object" && module.exports) module.exports = m; else root.EndlessRules = m;
 })(typeof self !== "undefined" ? self : this, function () {
   "use strict";
-  const VERSION = 4;
+  const VERSION = 5;
   const PLAYER_HP = 3, INV_MIN = 0.9, BLAST_CD = 14, FIRE_INT = 0.15, BLAST_DMG = 10;
   const HEAL_CAP = 2, HEAL_WINDOW = 300, PICKUP_LIFE = 30, ENTRY_MIN = 0.15, MAX_LIFE = 45;
   const TIER_SHOTS = [0, 1, 3, 6], TIER_DPS = TIER_SHOTS.map((n) => n / FIRE_INT), MAX_TIER_BONUS = 1000;
@@ -42,13 +42,33 @@
 
   // Every 20 s the gap between enemy packs shrinks by 8% (cumulative), down to a floor. Plain multiplication keeps
   // browser and server bit-identical. Enemy movement speed ramps smoothly with speedAt(t).
-  const STEP_SECONDS = 20, STEP_FACTOR = 0.92, GAP_START = 4.6, GAP_MIN = 1.1;
+  const STEP_SECONDS = 20, STEP_FACTOR = 0.92, GAP_START = 3.0, GAP_MIN = 0.9, WAVE_EVERY = 20, LANES = 8;
   function spawnGap(t) { const steps = Math.floor(t / STEP_SECONDS); let g = GAP_START; for (let i = 0; i < steps && g > GAP_MIN; i++) g *= STEP_FACTOR; return Math.max(GAP_MIN, g); }
   function speedAt(t) { return 1 + Math.min(1, t / 420); }
   function threatLevel(t) { return 1 + Math.floor(t / STEP_SECONDS); }
+  // Wave n arrives at 20·n s: more enemies each time, mixing standard, armored and fast types. Arrivals are staggered in
+  // groups of four, and two adjacent lanes are always left open as a dodge route. Darts are spaced apart.
+  function waveSpawns(seed, n) {
+    const r = rng((seed ^ Math.imul(n + 7, 0x85ebca6b)) >>> 0), t0 = n * WAVE_EVERY;
+    const count = Math.min(34, 6 + n * 2), armoredShare = n >= 2 ? Math.min(0.3, 0.06 * n) : 0, fastShare = n >= 3 ? Math.min(0.2, 0.04 * n) : 0;
+    const maxTier = t0 >= 270 ? 4 : t0 >= 180 ? 3 : t0 >= 100 ? 2 : 1;
+    const std = POOL.filter((p) => STATS[p[0]][3] === "n" && p[1] <= t0).map((p) => p[0]);
+    const gapA = Math.floor(r() * (LANES - 1)), open = [];
+    for (let l = 0; l < LANES; l++) if (l !== gapA && l !== gapA + 1) open.push(l);
+    const out = []; let lastFast = -9;
+    for (let i = 0; i < count; i++) {
+      const x = r(); let type;
+      if (x < fastShare && i - lastFast >= 4) { type = "dart"; lastFast = i; }
+      else if (x < fastShare + armoredShare) type = "bulwark" + (1 + Math.floor(r() * maxTier));
+      else type = std[Math.floor(r() * std.length)];
+      const lane = open[Math.floor(r() * open.length)], st = STATS[type];
+      out.push({ id: 1000000 + n * 100 + i, t: r3(t0 + 0.4 + Math.floor(i / 4) * 0.55 + r() * 0.25), type, y: r3(0.12 + lane * (0.76 / (LANES - 1))), hp: st[0], shield: st[1], score: st[2], elite: false, wave: n });
+    }
+    return out;
+  }
   function createSchedule(seed) {
     const r = rng(seed);
-    let packT = 2, id = 0;
+    let packT = 2, id = 0, nextWave = 1;
     const buf = [];
     function pack() {
       const t = packT, d = t / 60;
@@ -95,6 +115,7 @@
       // returns every spawn with t <= untilT, in time order, each exactly once
       take(untilT) {
         while (packT <= untilT + 12) pack();
+        while (nextWave * WAVE_EVERY <= untilT + 12) for (const s of waveSpawns(seed, nextWave++)) buf.push(s);
         buf.sort((a, b) => a.t - b.t || a.id - b.id);
         const out = [];
         while (buf.length && buf[0].t <= untilT) out.push(buf.shift());
@@ -204,6 +225,6 @@
     return { ok: true, score: Math.round(score), kills: kills.length, elites, survival: end };
   }
 
-  return { VERSION, STATS, POOL, POWERUPS, UPGRADES, TIER_SHOTS, spawnGap, speedAt, threatLevel, STEP_SECONDS, FIRE_INT, MAX_TIER_BONUS, PLAYER_HP, BLAST_CD, BLAST_DMG, HEAL_CAP, HEAL_WINDOW, PICKUP_LIFE, PICK_POINTS,
+  return { VERSION, STATS, POOL, POWERUPS, UPGRADES, WAVE_EVERY, waveSpawns, TIER_SHOTS, spawnGap, speedAt, threatLevel, STEP_SECONDS, FIRE_INT, MAX_TIER_BONUS, PLAYER_HP, BLAST_CD, BLAST_DMG, HEAL_CAP, HEAL_WINDOW, PICKUP_LIFE, PICK_POINTS,
     rng, hash01, createSchedule, newDropState, dropFor, milestonePoints, validate };
 });

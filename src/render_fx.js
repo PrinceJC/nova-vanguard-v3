@@ -49,6 +49,18 @@ function drawMotes(ctx, g, now) {
   ctx.globalAlpha = 1;
 }
 
+// draws a hero (wings flap behind the body around the shoulder); cx, cy = centre of the body sprite in world units
+function drawAvatarArt(ctx, av, frame, cx, cy, K, now, o = {}) {
+  if (av.board === "wings") {
+    const flap = Math.sin(now / 150), px = cx + (WING_PIVOT[0] - 50) * K, py = cy + (WING_PIVOT[1] - 33) * K;
+    ctx.save(); ctx.translate(px, py); ctx.rotate(-0.1 * flap); ctx.scale(1, 0.84 + 0.16 * flap); ctx.translate(-px, -py);
+    drawSprWH(ctx, `avw_${av.id}`, cx + (WING_VB[0] + WING_VB[2] / 2 - 50) * K, cy + (WING_VB[1] + WING_VB[3] / 2 - 33) * K, WING_VB[2] * K, WING_VB[3] * K, { alpha: o.alpha });
+    ctx.restore();
+  }
+  const pu = o.pulse || 1;
+  drawSprWH(ctx, `av_${av.id}_${frame}`, cx, cy, 104 * K * pu, 70 * K * pu, { alpha: o.alpha, skew: o.skew, white: o.white });
+}
+
 // ============================================================ player (avatar) with animation states
 function drawPlayer(ctx, g, set, now, Q) {
   const p = g.player, av = AVATAR_BY_ID[g.avatar] || AVATARS[0], sh = av.shot[0];
@@ -56,7 +68,7 @@ function drawPlayer(ctx, g, set, now, Q) {
     if (p.deadT > 1.3) return;
     const k = p.deadT / 1.3;
     ctx.save(); ctx.translate(p.x - k * 30, p.y + k * k * 160); ctx.rotate(k * 5); ctx.globalAlpha = 1 - k;
-    drawSprWH(ctx, `av_${av.id}_hurt`, 0, 0, 104 * PLAYER_ART_K, 70 * PLAYER_ART_K); ctx.restore(); return;
+    drawAvatarArt(ctx, av, "hurt", 0, 0, PLAYER_ART_K, now); ctx.restore(); return;
   }
   let a = 1;
   if (p.inv > 0) a = set.reduced ? 0.55 : Math.floor(now / 80) % 2 ? 0.3 : 1;
@@ -74,8 +86,9 @@ function drawPlayer(ctx, g, set, now, Q) {
   if (Q > 0 && p.muzzle > 0) drawGlow(ctx, p.bullet ? BULLET_POWERUPS[p.bullet.kind].color : sh, p.x + mz[0] + 4, p.y + mz[1], 22, 0.85);
   if (p.upT > 0 && Q > 0) drawGlow(ctx, "#ffd34f", p.x + mz[0] * 0.6, p.y + mz[1], 46, p.upT);
   const recoil = av.cat === "cannon" ? p.recoil * 1.6 : av.cat === "sniper" ? p.recoil * 1.2 : av.cat === "bow" ? 0 : p.recoil * 0.7;
-  ctx.save(); ctx.translate(-recoil, bob); ctx.rotate(p.tilt * 0.6);
-  drawSprWH(ctx, `av_${av.id}_${frame}`, cx, cy, AW * pulse, AH * pulse, { alpha: a, skew: Math.sin(now / 300) * 0.012, white: p.hurtT > 0.25 ? 0.6 : 0 });
+  const lean = av.board === "skate" ? (p.muzzle > 0 ? -0.06 : 0) + Math.sin(now / 260) * 0.03 : 0;
+  ctx.save(); ctx.translate(-recoil, bob); ctx.rotate(p.tilt * 0.6 + lean);
+  drawAvatarArt(ctx, av, frame, cx, cy, K, now, { alpha: a, pulse, skew: Math.sin(now / 300) * 0.012, white: p.hurtT > 0.25 ? 0.6 : 0 });
   ctx.restore();
   if (p.healT > 0) { ctx.strokeStyle = "#6fe04a"; ctx.lineWidth = 3; ctx.globalAlpha = p.healT / 0.6; ctx.beginPath(); ctx.arc(p.x, p.y - 4, 40 - p.healT * 20, 0, TAU); ctx.stroke(); ctx.globalAlpha = 1; }
   if (p.upT > 0) { ctx.strokeStyle = "#ffd34f"; ctx.lineWidth = 3; ctx.globalAlpha = p.upT / 0.8; ctx.beginPath(); ctx.arc(p.x, p.y - 4, 46 - p.upT * 24, 0, TAU); ctx.stroke(); ctx.globalAlpha = 1; }
@@ -102,10 +115,16 @@ function drawPlayerShots(ctx, g, Q) {
       ctx.fillStyle = col; ctx.strokeStyle = "#120c22"; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(15, 0); ctx.lineTo(6, -4.4); ctx.lineTo(8, 0); ctx.lineTo(6, 4.4); ctx.closePath(); ctx.fill(); ctx.stroke();
       ctx.fillStyle = av.out[2]; ctx.beginPath(); ctx.moveTo(-11, 0); ctx.lineTo(-17, -4); ctx.lineTo(-14, 0); ctx.lineTo(-17, 4); ctx.closePath(); ctx.fill();
       ctx.fillStyle = core; ctx.beginPath(); ctx.arc(12, 0, 1.4, 0, TAU); ctx.fill();
+    } else if (cat === "wand") { // glowing magic orb with a sparkle trail
+      if (Q > 0) { for (let k = 1; k <= 3; k++) { ctx.globalAlpha = 0.5 - k * 0.12; ctx.fillStyle = col; ctx.beginPath(); ctx.arc(-k * 7, Math.sin(s.age * 30 + k) * 2.5, 3.2 - k * 0.6, 0, TAU); ctx.fill(); } ctx.globalAlpha = 1; }
+      if (Q > 1) { ctx.globalAlpha = 0.55; ctx.drawImage(glow(col), -14, -14, 28, 28); ctx.globalAlpha = 1; }
+      ctx.fillStyle = col; ctx.strokeStyle = "#0f1e3a"; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(0, 0, 5.4, 0, TAU); ctx.fill(); ctx.stroke();
+      ctx.save(); ctx.rotate(s.age * 10); ctx.fillStyle = core; starPath(ctx, 0, 0, 4.2, 1.6, 4); ctx.fill(); ctx.restore();
     } else if (cat === "sniper") { // slim, bright precision round
       if (Q > 0) { const tg = ctx.createLinearGradient(-44, 0, -10, 0); tg.addColorStop(0, col + "00"); tg.addColorStop(1, col + "cc"); ctx.fillStyle = tg; ctx.fillRect(-44, -1.2, 34, 2.4); }
       if (Q > 1) { ctx.globalAlpha = 0.35; ctx.drawImage(glow(col, 32), -16, -6, 32, 12); ctx.globalAlpha = 1; }
-      ctx.fillStyle = "#0f1e3a"; ctx.beginPath(); ctx.ellipse(0, 0, 16, 2.8, 0, 0, TAU); ctx.fill();
+      if (av.heavy) { const tg = ctx.createLinearGradient(-70, 0, -10, 0); tg.addColorStop(0, col + "00"); tg.addColorStop(1, col + "ee"); ctx.fillStyle = tg; ctx.fillRect(-70, -2, 60, 4); }
+      ctx.fillStyle = "#0f1e3a"; ctx.beginPath(); ctx.ellipse(0, 0, av.heavy ? 20 : 16, av.heavy ? 3.6 : 2.8, 0, 0, TAU); ctx.fill();
       ctx.fillStyle = col; ctx.beginPath(); ctx.ellipse(0, 0, 15, 1.9, 0, 0, TAU); ctx.fill();
       ctx.fillStyle = core; ctx.beginPath(); ctx.ellipse(3, 0, 9, 0.9, 0, 0, TAU); ctx.fill();
     } else if (cat === "gun") { // compact luminous bullet
@@ -394,7 +413,21 @@ function drawHUD(ctx, g, set, now) {
   if (p.shield > 0) chip("Shield " + p.shield.toFixed(1) + "s", "#9ff7c4", p.shield / p.shieldMax);
   if (p.bullet) { const pu = BULLET_POWERUPS[p.bullet.kind]; chip(pu.name.split(" ")[0] + " " + p.bullet.t.toFixed(1) + "s", pu.color, p.bullet.t / POWERUP_TIME); }
   txt(ctx, g.score.toLocaleString(), W - 86, 36, 26, "#ffe08a", "right", 800);
-  if (g.mode === "endless") { txt(ctx, g.kills + " defeated", W - 86, 58, 14, "#c9bde8", "right"); const nx = EndlessRules.STEP_SECONDS - (g.t % EndlessRules.STEP_SECONDS); txt(ctx, `Threat ${EndlessRules.threatLevel(g.t)} · next in ${Math.ceil(nx)}s`, W - 86, 78, 13, "#ff9ad5", "right"); }
+  if (g.mode === "endless") {
+    const wave = Math.floor(g.t / EndlessRules.WAVE_EVERY), nx = EndlessRules.WAVE_EVERY - (g.t % EndlessRules.WAVE_EVERY);
+    txt(ctx, `Wave ${wave} · ${g.kills} defeated`, W - 86, 58, 14, "#c9bde8", "right");
+    txt(ctx, `Next wave in ${Math.ceil(nx)}s`, W - 86, 77, 13, "#ff9ad5", "right");
+    // personal records: best score and longest survival, turning gold when beaten during this run
+    const best = g.best, bs = best ? best.score : 0, bt = best ? best.ms / 1000 : 0;
+    const newScore = best ? g.score > bs : g.score > 0, newTime = best ? g.t > bt : g.t > 0;
+    ctx.fillStyle = "rgba(18,12,40,0.72)"; roundRect(ctx, W - 286, 86, 200, 42, 10); ctx.fill();
+    ctx.strokeStyle = newScore || newTime ? "#ffd34f" : "rgba(160,190,255,0.35)"; ctx.lineWidth = 1.5; ctx.stroke();
+    txt(ctx, "Best score", W - 276, 103, 12, "#a8b4e8"); txt(ctx, best ? (newScore ? g.score : bs).toLocaleString() : "—", W - 96, 103, 14, newScore ? "#ffd34f" : "#ffe08a", "right", 800);
+    txt(ctx, "Longest run", W - 276, 121, 12, "#a8b4e8"); txt(ctx, best ? fmtTime(newTime ? g.t : bt) : "—", W - 96, 121, 14, newTime ? "#ffd34f" : "#c8f0ff", "right", 800);
+    if (best && (newScore || newTime) && g.state === "endless") txt(ctx, "New best!", W - 186, 142, 13, "#ffd34f", "center", 900);
+    if (nx <= 2.2 && g.t > 1) { const k = set.reduced ? 1 : 0.6 + 0.4 * Math.sin(now / 90); ctx.globalAlpha = k; ctx.fillStyle = "rgba(255,63,122,0.16)"; ctx.fillRect(0, H / 2 - 44, W, 88);
+      txt(ctx, `Wave ${wave + 1} incoming!`, W / 2, H / 2 + 12, 40, "#ffd1e6", "center", 900); ctx.globalAlpha = 1; }
+  }
 
   if (g.boss && !g.boss.dying) {
     const b = g.boss, bw = 380, bx = W / 2 - bw / 2, by = H - 34;

@@ -54,8 +54,8 @@ async def main():
         # ---------- avatar selection screen
         await pg.evaluate("()=>{const s=window.__lumi.save();}")
         await pg.get_by_role("button", name="Avatars", exact=True).click(); await pg.wait_for_timeout(1200); await pg.screenshot(path="/tmp/a_avatars.png")
-        info = await pg.inner_text(".avinfo"); ok("Cannon" in info and "Astra" in info, "selection shows name + weapon category: " + info.split("\n")[1][:60])
-        await pg.click(".avtile >> nth=1"); await pg.wait_for_timeout(300); await pg.click("text=Use Lumi"); await pg.wait_for_timeout(300)
+        info = await pg.inner_text(".avinfo"); ok("Shield" in info and "Nova" in info, "selection shows name + weapon category: " + info.split("\n")[1][:60])
+        await pg.click(".avtile:has-text(\"Lumi\")"); await pg.wait_for_timeout(300); await pg.click("text=Use Lumi"); await pg.wait_for_timeout(300)
         ok((await pg.evaluate("()=>window.__lumi.save()"))["avatars"]["selected"] == "nova", "selected Lumi (sniper)")
         await pg.get_by_role("button", name="Back", exact=True).click()
         # ---------- campaign: weapon resets on retry after game over
@@ -94,7 +94,14 @@ async def main():
         for i in range(5):
             await pg.evaluate("()=>{const g=window.__lumi.game(); g.player.inv=0; g.player.shield=0; hurtPlayer(g);}"); await pg.wait_for_timeout(1250)
         await pg.keyboard.up("Space"); await pg.wait_for_timeout(3000)
-        ok("Verified and ranked" in await pg.inner_text(".result"), "endless run verified by the server rules (v4)")
+        ok("Verified and ranked" in await pg.inner_text(".result"), "endless run verified by the server rules (v5)")
+        res_txt = await pg.inner_text(".result"); ok("Best score" in res_txt and "Longest survival" in res_txt, "results show best score and longest survival")
+        await pg.click("text=Play again"); await pg.wait_for_timeout(1200)
+        bst = await pg.evaluate("()=>window.__lumi.game().best"); verified = await pg.evaluate("()=>window.__fake.db.runs.filter(r=>r.status==='valid'&&r.id.startsWith('run')).map(r=>r.score)")
+        ok(bst is not None and bst["score"] == max(verified) and bst["ms"] > 0, f"next run shows records in the HUD: best {bst and bst['score']}, longest {bst and round(bst['ms']/1000,1)}s")
+        await pg.wait_for_timeout(1500); await pg.screenshot(path="/tmp/best_hud.png")
+        await pg.keyboard.press("Escape"); await pg.click("text=Main menu")
+        # ---------- (results screen was left via Main menu above)
         # ---------- three archer/gun/cannon gameplay shots
         for av, path in [("aria", "/tmp/a_bow.png"), ("zephyr", "/tmp/a_gun.png"), ("lumi", "/tmp/a_cannon.png")]:
             await pg.evaluate(f"()=>{{ const g=createGame({{mode:'campaign',level:3,tier:3,avatar:'{av}',god:true}}); g.state='waves'; g.waveIdx=99; window.__shotGame=g; }}")

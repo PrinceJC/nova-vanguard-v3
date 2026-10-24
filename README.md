@@ -22,7 +22,7 @@ Without an SMS provider, players simply use email. The game shows a clear messag
 ## 2. Set up Supabase (about 10 minutes)
 
 1. Create a project at **supabase.com**.
-2. **SQL Editor** → run both files in `supabase/migrations/`, oldest first.
+2. **SQL Editor** → run every file in `supabase/migrations/`, oldest first (three files).
 3. **Authentication → Providers (Sign In / Providers) → Email:** enabled.
    - **Confirm email ON** (recommended): new players verify with a 6-digit code (or by tapping the link) before playing.
    - **Confirm email OFF**: players sign up with username + password and play immediately. Quickest for testing.
@@ -84,7 +84,7 @@ Tuning lives in data: `ENEMIES` and `SHOT_PATTERNS` in `src/engine.js`, worlds a
 
 ## 6. How ranked endless stays fair
 
-Ranked rules are at **version 4** (three lives, contact-only enemies, armored and fast enemy families, rising spawn rate).
+Ranked rules are at **version 5** (three lives, contact-only enemies, armored and fast enemy families, continuous spawns plus a bigger staggered wave every 20 seconds).
 
 - `run-start` creates a server-side run session with a random seed.
 - The seed fully determines the enemy schedule, elite placement and drops, so every player faces the same rules.
@@ -108,6 +108,9 @@ Browser tests (`tests/*.py`) use Playwright with a **test-only** fake backend (`
 
 ## 9. Heroes
 
+**26 heroes.** Nova (the main hero, id `lumi`) carries a blue-and-silver vanguard shield cannon. Astra is a starter. New: Seraphine (flapping wings, radiant pistol, unlocks at 12 levels), Elara (magic wand, 22), Kai (hover skateboard, 32), Lyra (bow, 42) and Rook (heavy railgun, 52). Wings, shields and skateboards are visual only; every hero shares the same small hitbox.
+
+
 20 heroes, 5 per weapon type: **cannons** (Astra, Riko, Pip, Dax, Luma), **bows** (Aria, Kestrel, Mochi, Haru, Wren), **sniper rifles** (Lumi, Sable, Vega, Ines, Tamsin), and **rifles/guns** (Juno, Orla, Zephyr, Cass, Elio). Weapon type changes artwork and projectiles only; damage, fire rate, speed, health and hitbox are identical. Avatar IDs are unchanged from earlier versions (Astra uses the id `lumi`), so unlocks and selections carry over. All hero art is generated from `src/avatars.js`; replace any sprite without touching game logic.
 
 ## 10. Phones, tablets and rotation
@@ -121,7 +124,7 @@ Browser tests (`tests/*.py`) use Playwright with a **test-only** fake backend (`
 
 - **Weapon:** 1 shot → 3 shots (centre + two angled) → 6 shots (three symmetrical pairs). Every elite drops one upgrade. At max power each extra upgrade is worth +1,000 points.
 - **Campaign upgrades last for the current level only.** Every level starts with one bullet per attack: advancing to the next level, replaying a level, retrying after game over or starting a new run always resets the weapon. Unlocked levels and progress are never affected.
-- **Endless:** enemies don’t shoot; they hurt on contact. Every 20 seconds the threat level rises and enemies spawn more often, and enemy speed climbs smoothly over the run. Everything resets each new run.
+- **Endless:** enemies don’t shoot; they hurt on contact. Enemies spawn continuously, and every 20 seconds a “Wave incoming!” warning precedes a larger wave (6 enemies at wave 1, growing by 2 each wave up to 34) that mixes standard, armored and fast enemies. Waves arrive in staggered groups and always leave two lanes open to dodge through. Enemy speed climbs smoothly. The HUD shows the wave number plus your best Endless score and longest survival (they turn gold with “New best!” when you beat them). Everything resets each new run.
 - **Lives:** every run starts with 3 lives. Health pickups restore one (never above 3); at most 2 spawn per campaign level, and at most 2 per 5 minutes in endless.
 - **Bullet power-ups (10 s):** Comet (fast streaking rounds), Nova (big spinning stars, easier to land) and Prism (crystal shards). They change bullet look and speed only, so ranked damage stays fair.
 - **Endless enemies:** standard drones (1–2 hits), armored Bulwarks needing exactly 5 / 10 / 15 / 20 hits (bronze, silver, gold, void, with a health bar), and fast Darts that flash a warning line for 0.9 s before rushing.

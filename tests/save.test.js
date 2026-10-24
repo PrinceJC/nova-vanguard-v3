@@ -15,10 +15,10 @@ t("migration never overwrites more advanced cloud progress", () => {
 t("migration fills in cloud gaps from older local progress", () => { const m = S.mergeSaves(S.blankSave(), S.convertV1(v1)); assert.strictEqual(m.campaign.unlocked, 7); assert.strictEqual(m.campaign.run.level, 7); });
 t("merge is idempotent", () => { const a = S.mergeSaves(S.blankSave(), S.convertV1(v1)); assert.deepStrictEqual(S.mergeSaves(a, S.convertV1(v1)), a); });
 t("corrupt or hostile save data is repaired", () => { for (const bad of [null, "x", { campaign: { unlocked: "lots", completed: "no", run: { level: 99 } }, avatars: { selected: "hacker" }, settings: { quality: 9, music: 50 } }]) { const s = S.sanitizeSave(bad); assert.strictEqual(s.campaign.completed.length, 100); assert(s.campaign.unlocked >= 1); assert.strictEqual(s.avatars.selected, "lumi"); assert(s.settings.music <= 1); assert(!s.campaign.run || s.campaign.run.level <= s.campaign.unlocked); } });
-t("avatar unlocks follow campaign milestones (4 starters, rest by level)", () => {
-  const s = S.blankSave(); assert.strictEqual(S.refreshUnlocks(s).avatars.unlocked.length, 4);
-  for (let i = 0; i < 40; i++) s.campaign.completed[i] = true; assert.strictEqual(S.refreshUnlocks(s).avatars.unlocked.length, 12);
-  for (let i = 0; i < 100; i++) s.campaign.completed[i] = true; assert.strictEqual(S.refreshUnlocks(s).avatars.unlocked.length, 20);
+t("avatar unlocks follow campaign milestones (5 starters, rest by level)", () => {
+  const s = S.blankSave(); assert.strictEqual(S.refreshUnlocks(s).avatars.unlocked.length, 5);
+  for (let i = 0; i < 40; i++) s.campaign.completed[i] = true; assert.strictEqual(S.refreshUnlocks(s).avatars.unlocked.length, 16);
+  for (let i = 0; i < 100; i++) s.campaign.completed[i] = true; assert.strictEqual(S.refreshUnlocks(s).avatars.unlocked.length, 26);
 });
 t("selecting a locked avatar falls back to Lumi", () => { const s = S.blankSave(); s.avatars.selected = "luma"; assert.strictEqual(S.sanitizeSave(s).avatars.selected, "lumi"); });
 t("Manila period keys and resets", () => {

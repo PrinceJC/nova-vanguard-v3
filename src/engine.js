@@ -469,8 +469,8 @@ function updateEndlessFlow(g, dt) {
     spawnEnemy(g, s.type, y, undefined, { hp: s.hp, shield: s.shield, sid: s.id, elite: s.elite, score: s.score });
   }
   for (const u of EndlessRules.UPGRADES) if (!g.upDone[u.id] && g.t >= u.t) { g.upDone[u.id] = true; g.pickups.push({ x: W + 20, y: 40 + u.y * (H - 80), kind: "up", t: 0, vy: 0, pid: u.id }); }
-  const lvl = EndlessRules.threatLevel(g.t);
-  if (lvl !== g.threat) { if (g.threat) { floatText(g, W / 2, 150, `Threat level ${lvl}: more enemies, faster`, "#ff9ad5", 20); ev(g, "sfx", { name: "warning" }); } g.threat = lvl; }
+  const nextWave = Math.floor(g.t / EndlessRules.WAVE_EVERY) + 1;
+  if (nextWave * EndlessRules.WAVE_EVERY - g.t <= 2 && g.warned !== nextWave) { g.warned = nextWave; ev(g, "sfx", { name: "warning" }); }
   const m = Math.floor(g.t / 60);
   if (m > g.milestone) { g.milestone = m; const pts = 250 * m; g.score += pts; floatText(g, W / 2, 110, `${m} min survived  +${pts}`, "#ffe08a"); ev(g, "sfx", { name: "clear" }); }
   const th = Math.floor(g.t / 120) % WORLDS.length;

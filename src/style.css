@@ -249,3 +249,8 @@ body.game { position: fixed; inset: 0; overflow: hidden; }
 .phoneicon span { position: absolute; left: 50%; bottom: 6px; width: 14px; height: 4px; margin-left: -7px; border-radius: 2px; background: #8ff7ef; }
 @keyframes rot { 0%, 20% { transform: rotate(0); } 55%, 80% { transform: rotate(-90deg); } 100% { transform: rotate(0); } }
 @media (prefers-reduced-motion: reduce) { .phoneicon { animation: none; transform: rotate(-90deg); } }
+
+.avgrid { grid-template-columns: repeat(7, 1fr); gap: 5px; }
+.avtile { font-size: 12px; padding: 3px 1px; }
+.avtile .portrait { width: 36px; height: 36px; }
+.avtile .cat { font-size: 10px; }

@@ -51,13 +51,13 @@ function AvatarPreview({ id, w = 298, h: hh = 150 }) {
       ctx.setTransform(2, 0, 0, 2, 0, 0); ctx.clearRect(0, 0, w, hh);
       fire -= dt; let frame = "idle";
       if (t % 4 > 3.3) frame = "hurt";
-      else if (fire <= 0) { fire = 0.24; const tier = 1 + Math.floor(t / 2.5) % 3, mz = muzzleFor(id); for (const a of SHOT_PATTERNS[tier]) fake.pbul.push({ x: 92 + mz[0] * 0.85, y: hh / 2 + mz[1] * 0.85, vx: Math.cos(a) * 380, vy: Math.sin(a) * 380, age: 0 }); frame = "fire"; }
+      else if (fire <= 0) { fire = 0.24; const tier = 1 + Math.floor(t / 2.5) % 3, mz = muzzleFor(id); for (const a of SHOT_PATTERNS[tier]) fake.pbul.push({ x: 92 + mz[0] * 0.8 / PLAYER_ART_K * PLAYER_ART_K, y: hh / 2 + 10 + mz[1] * 0.8, vx: Math.cos(a) * 380, vy: Math.sin(a) * 380, age: 0 }); frame = "fire"; }
       else if (fire > 0.12) frame = "fire";
       for (const b of fake.pbul) { b.x += b.vx * dt; b.age += dt; }
       fake.pbul = fake.pbul.filter((b) => b.x < w + 20);
       drawPlayerShots(ctx, fake, 2);
       ctx.save(); ctx.translate(0, Math.sin(now / 160) * 3);
-      drawSprWH(ctx, `av_${id}_${frame}`, 92, hh / 2 + 2 * PLAYER_ART_K * 0.85, 124 * PLAYER_ART_K * 0.85, 84 * PLAYER_ART_K * 0.85, { white: frame === "hurt" && t % 4 < 3.45 ? 0.5 : 0 }); ctx.restore();
+      const K = PLAYER_ART_K * 0.8; drawAvatarArt(ctx, AVATAR_BY_ID[id], frame, 92 + (50 - SPRITE_ANCHOR[0]) * K, hh / 2 + 10 + (33 - SPRITE_ANCHOR[1]) * K, K, now, { white: frame === "hurt" && t % 4 < 3.45 ? 0.5 : 0 }); ctx.restore();
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
@@ -228,6 +228,16 @@ function App() {
   const [stage, setStage] = useState({ w: 960, h: 540, s: 1 });
   const [portrait, setPortrait] = useState(isPortrait());
   const perf = useRef({ cap: 2, dprCap: 2, frames: 0, acc: 0 }); const [perfTick, setPerfTick] = useState(0);
+  const endlessBest = useRef(null);
+  const bestKey = (uid) => "lumi-endless-best:" + uid;
+  const refreshBest = useCallback(() => {
+    if (!Net.user) return Promise.resolve(null);
+    if (!endlessBest.current) { try { endlessBest.current = JSON.parse(lsGet(bestKey(Net.user.id))) || null; } catch (e) {} }
+    return Net.endlessBest().then((b) => {
+      if (b && b.best_score != null) { endlessBest.current = { score: b.best_score, ms: b.best_survival_ms || 0 }; lsSet(bestKey(Net.user.id), JSON.stringify(endlessBest.current)); }
+      return b;
+    }).catch(() => null);
+  }, []);
   const canvas = useRef(null), game = useRef(null), input = useRef({}), screenRef = useRef(screen), saveRef = useRef(save), attract = useRef(null), runRef = useRef(null), dirty = useRef(false), saveTimer = useRef(null);
   screenRef.current = screen; saveRef.current = save;
   if (typeof window !== "undefined") window.__lumi = { game: () => game.current, screen: () => screenRef.current, save: () => saveRef.current };
@@ -275,6 +285,7 @@ function App() {
       const ok = await pushCloud();
       if (migrated && ok) { lsSet(migratedKey(prof.id), "1"); setSaveStatus("Your earlier progress was added to your account"); }
       if (prof.avatar !== merged.avatars.selected) Net.setAvatar(merged.avatars.selected).catch(() => {});
+      refreshBest();
       setScreen("menu");
     } catch (e) { setCfgError(friendlyError(e)); setScreen("neterror"); }
   }, []);
@@ -368,6 +379,8 @@ function App() {
     catch (e) { ranked = false; runRef.current = null; seed = (Math.random() * 2 ** 31) >>> 0; why = friendlyError(e); }
     game.current = createGame({ mode: "endless", seed, avatar: saveRef.current.avatars.selected, quality: saveRef.current.settings.quality });
     game.current.ranked = ranked; game.current.unrankedWhy = why;
+    if (!endlessBest.current && Net.user) { try { endlessBest.current = JSON.parse(lsGet(bestKey(Net.user.id))) || null; } catch (e) {} }
+    game.current.best = endlessBest.current ? { ...endlessBest.current } : null;
     input.current = {}; setScreen("playing"); Sound.duck(false); Sound.music(WORLDS[9].music, true);
   }, []);
   const onEndlessOver = useCallback(async () => {
@@ -379,7 +392,7 @@ function App() {
     if (!g.ranked) return;
     try {
       const r = await Net.submitRun(runRef.current, g.rec);
-      const [best, day, week] = await Promise.all([Net.endlessBest().catch(() => null), Net.standing("daily").catch(() => null), Net.standing("weekly").catch(() => null)]);
+      const [best, day, week] = await Promise.all([refreshBest(), Net.standing("daily").catch(() => null), Net.standing("weekly").catch(() => null)]);
       setEres({ ...base, status: "verified", score: r.score, best, day, week });
     } catch (e) {
       if (e.status === 422) setEres({ ...base, status: "rejected", reason: e.message });
@@ -390,7 +403,7 @@ function App() {
   const resubmit = async () => {
     const g = game.current; if (!g || !runRef.current) return;
     setEres((x) => ({ ...x, status: "submitting" }));
-    try { const r = await Net.submitRun(runRef.current, g.rec); const [best, day, week] = await Promise.all([Net.endlessBest().catch(() => null), Net.standing("daily").catch(() => null), Net.standing("weekly").catch(() => null)]); setEres((x) => ({ ...x, status: "verified", score: r.score, best, day, week })); }
+    try { const r = await Net.submitRun(runRef.current, g.rec); const [best, day, week] = await Promise.all([refreshBest(), Net.standing("daily").catch(() => null), Net.standing("weekly").catch(() => null)]); setEres((x) => ({ ...x, status: "verified", score: r.score, best, day, week })); }
     catch (e) { setEres((x) => ({ ...x, status: e.status === 422 ? "rejected" : e.status === 409 ? "duplicate" : "neterror", reason: e.status ? e.message : friendlyError(e) })); }
   };
 
@@ -465,7 +478,7 @@ function App() {
 
   if (screen === "welcome") overlay = h("div", { className: "title" },
     h("div", { className: "hero" }, h("img", { src: avatarFull("lumi"), alt: "Lumi, a chibi gunner with a silver-lavender ponytail", className: "heroimg" }),
-      h("h1", null, "Nova Vanguard"), h("p", { className: "tag" }, "100 levels. 20 heroes. One endless challenge.")),
+      h("h1", null, "Nova Vanguard"), h("p", { className: "tag" }, "100 levels. 26 heroes. One endless challenge.")),
     h("nav", { className: "menu", "aria-label": "Account" },
       h(Btn, { main: true, auto: true, onClick: () => { setAuthMode("signup"); setScreen("auth"); } }, "Create account"),
       h(Btn, { onClick: () => { setAuthMode("signin"); setScreen("auth"); } }, "Sign in"),
@@ -581,7 +594,8 @@ function App() {
       h("p", { className: "big" }, fmt(eres.score)),
       h("table", null, h("tbody", null,
         h("tr", null, h("td", null, "Survived"), h("td", null, ft(eres.survival))), h("tr", null, h("td", null, "Enemies defeated"), h("td", null, fmt(eres.kills))),
-        eres.best && h("tr", null, h("td", null, "Personal best"), h("td", null, fmt(eres.best.best_score))),
+        eres.best && h("tr", null, h("td", null, "Best score"), h("td", null, fmt(eres.best.best_score))),
+        eres.best && eres.best.best_survival_ms != null && h("tr", null, h("td", null, "Longest survival"), h("td", null, ft(eres.best.best_survival_ms / 1000))),
         eres.day && h("tr", null, h("td", null, "Today’s rank"), h("td", null, eres.day.rank ? `#${eres.day.rank} of ${eres.day.players}` : "—")),
         eres.week && h("tr", null, h("td", null, "This week’s rank"), h("td", null, eres.week.rank ? `#${eres.week.rank} of ${eres.week.players}` : "—")))),
       st === "submitting" && h("p", { className: "note", "aria-live": "polite" }, "Verifying your run with the server…"),
@@ -643,7 +657,7 @@ function DemoCanvas() {
 function Landing({ signedIn, onPlay, onCreate }) {
   const [board, setBoard] = useState({ daily: null, weekly: null, err: "" });
   useEffect(() => { Promise.all([Net.leaderboard("daily"), Net.leaderboard("weekly")]).then(([d, w]) => setBoard({ daily: d.slice(0, 5), weekly: w.slice(0, 5), err: "" })).catch((e) => setBoard({ daily: [], weekly: [], err: friendlyError(e) })); }, []);
-  const featured = ["aria", "nova", "kestrel", "zephyr", "luma"];
+  const featured = ["seraphine", "elara", "kai", "lyra", "astra"];
   const ft = (ms) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, "0")}`;
   const Board = ({ title, rows }) => h("div", { className: "lcard" }, h("h3", null, title),
     rows === null ? h("p", { className: "muted" }, "Loading…") : rows.length === 0 ? h("p", { className: "muted" }, "No ranked runs yet. The first verified score takes the top spot.") :
@@ -654,15 +668,15 @@ function Landing({ signedIn, onPlay, onCreate }) {
       h("div", { className: "links" }, ["Gameplay", "Campaign", "Heroes", "Endless", "Rankings", "How to play"].map((t) => h("a", { key: t, href: "#" + t.toLowerCase().replace(/ /g, "-") }, t))),
       h("button", { className: "lbtn primary small", onClick: onPlay }, signedIn ? "Continue Playing" : "Play Now")),
     h("header", { id: "top", className: "lhero" }, h(SpaceCanvas, { className: "herobg" }),
-      h("div", { className: "herocopy" }, h("h1", null, "Nova Vanguard"), h("p", { className: "tagline" }, "100 levels. 20 heroes. One endless challenge."),
+      h("div", { className: "herocopy" }, h("h1", null, "Nova Vanguard"), h("p", { className: "tagline" }, "100 levels. 26 heroes. One endless challenge."),
         h("p", { className: "lead" }, "A fantasy space shooter. Pick a cannon, bow, sniper rifle or gun, power up from one shot to six, grab timed bullet power-ups, and break through 100 bosses or chase the daily leaderboard."), cta(true)),
-      h("div", { className: "heroart" }, h("img", { className: "mainhero", src: avatarFull("lumi"), alt: "Astra, the sunrise vanguard, riding her glider with the Dawnfire cannon" }),
+      h("div", { className: "heroart" }, h("img", { className: "mainhero", src: avatarFull("lumi"), alt: "Nova, the silver vanguard, with her blue-and-silver shield cannon" }),
         h("div", { className: "squad" }, featured.map((id) => h("figure", { key: id }, h("img", { src: avatarPortrait(id), alt: "", width: 64, height: 64 }), h("figcaption", null, AVATAR_BY_ID[id].name)))))),
     h("section", { id: "gameplay", className: "lsec" }, h("h2", null, "See it in motion"), h("p", { className: "muted" }, "This is the game itself running live in your browser: real enemies, real bullets, and the special blast."), h("div", { className: "demowrap" }, h(DemoCanvas))),
     h("section", { id: "campaign", className: "lsec" }, h("h2", null, "The campaign"),
       h("div", { className: "stats" }, [["100", "levels"], ["10", "worlds"], ["1", "boss in every level"]].map(([n, l]) => h("div", { key: l, className: "stat" }, h("b", null, n), h("span", null, l)))),
       h("ol", { className: "worldlist" }, WORLDS.map((w, i) => h("li", { key: w.name, style: { "--acc": w.pal.acc } }, h("span", { className: "wn" }, i + 1), h("span", null, w.name), h("small", null, BOSSES[w.finale]().name))))),
-    h("section", { id: "heroes", className: "lsec" }, h("h2", null, "20 heroes"), h("p", { className: "muted" }, "Four are ready from the start. The rest unlock as you clear campaign levels. Every hero has the same hitbox, speed and damage, so picks are about style, not advantage."),
+    h("section", { id: "heroes", className: "lsec" }, h("h2", null, `${AVATARS.length} heroes`), h("p", { className: "muted" }, "Four are ready from the start. The rest unlock as you clear campaign levels. Every hero has the same hitbox, speed and damage, so picks are about style, not advantage."),
       h("div", { className: "herogrid" }, AVATARS.map((a) => h("figure", { key: a.id, className: "hcard" }, h("img", { src: avatarFull(a.id), alt: a.name, loading: "lazy" }), h("figcaption", null, h("b", null, a.name), h("span", null, a.title), h("small", { className: a.unlock ? "" : "starter" }, `${WEAPON_CATS[a.cat]} · ${a.unlock ? `Clear ${a.unlock} levels` : "Starter"}`)))))),
     h("section", { id: "endless", className: "lsec split" }, h("div", null, h("h2", null, "Endless mode"),
       h("p", null, "Waves never stop and enemies never shoot, but contact hurts. Armored Bulwarks take 5 to 20 hits, Darts flash a warning before they rush, and every 20 seconds the swarm gets thicker and faster."),

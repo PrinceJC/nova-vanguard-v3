@@ -14,7 +14,12 @@ t("every avatar's projectiles leave from its own weapon muzzle or bow release po
     const ex = p.x + (m[0] - SPRITE_ANCHOR[0]) * K, ey = p.y + (m[1] - SPRITE_ANCHOR[1]) * K;
     assert.strictEqual(b.length, 6); for (const x of b) assert(Math.abs(x.x - ex) < 1.5 && Math.abs(x.y - ey) < 1.5, a.id); }
 });
-t("roster: 20 heroes, 5 cannons, 5 bows, 5 snipers, 5 guns; Nova is a cannon user", () => { const c = {}; for (const a of AVATARS) c[a.cat] = (c[a.cat] || 0) + 1; assert.deepStrictEqual(c, { cannon: 5, sniper: 5, bow: 5, gun: 5 }); assert.strictEqual(AVATARS.length, 20); assert.strictEqual(AVATARS.find((a) => a.id === "lumi").name, "Astra"); assert(!AVATARS.some((a) => a.name === "Nova")); });
+t("roster: 26 unique heroes incl. Nova (shield), winged, wand, skater, archer and sniper additions", () => {
+  assert.strictEqual(AVATARS.length, 26); assert.strictEqual(new Set(AVATARS.map((a) => a.name)).size, 26);
+  const nova = AVATARS.find((a) => a.id === "lumi"); assert.strictEqual(nova.name, "Nova"); assert.strictEqual(nova.cat, "shield");
+  const by = (id) => AVATARS.find((a) => a.id === id); assert.strictEqual(by("seraphine").board, "wings"); assert.strictEqual(by("elara").cat, "wand"); assert.strictEqual(by("kai").board, "skate"); assert.strictEqual(by("lyra").cat, "bow"); assert.strictEqual(by("rook").cat, "sniper"); assert.strictEqual(by("astra").unlock, 0);
+  const original = { lumi: 0, nova: 0, riko: 0, pip: 0, aria: 5, kestrel: 10, mochi: 15, sable: 20, juno: 25, vega: 30, haru: 35, ines: 40, dax: 45, orla: 50, zephyr: 55, tamsin: 60, wren: 65, cass: 70, elio: 75, luma: 80 };
+  for (const [id, u] of Object.entries(original)) assert.strictEqual(by(id).unlock, u, id + " keeps its unlock requirement"); });
 t("firing artwork lines up with the projectile origin for every hero", () => { for (const a of AVATARS) { const [mx, my] = MUZZLES[a.cat];
   if (a.cat === "bow") { const idle = avatarSVG(a, "idle", "game"); assert(idle.includes('M44 41 L72 41') && mx === 72 && my === 41, a.id); assert(!avatarSVG(a, "fire", "game").includes('M44 41 L72 41'), a.id + " releases"); }
   else assert(avatarSVG(a, "fire", "game").includes(`<circle cx="${mx}" cy="${my}" r="2.6"`), a.id); } });
@@ -30,7 +35,14 @@ t("weapon upgrades only on collection; max tier gives +1000 once per pickup", ()
   assert.strictEqual(grab(), 1000); assert.strictEqual(grab(), 1000); assert.strictEqual(h.player.tier, 3);
 });
 t("endless: enemies never fire projectiles; danger is contact only", () => { const h = createGame({ mode: "endless", seed: 77, god: true }); for (let i = 0; i < 60 * 240; i++) { updateGame(h, 1 / 60, {}); assert.strictEqual(h.ebul.length, 0); } assert(h.enemies.length + h.kills >= 0); });
-t("endless: spawn gap shrinks every 20 s, cumulatively, to a floor", () => { const R = globalThis.EndlessRules; let prev = Infinity; for (let s = 0; s <= 600; s += 20) { const gp = R.spawnGap(s); assert(gp <= prev); if (s >= 20 && gp > 1.1) assert(gp < R.spawnGap(s - 20)); prev = gp; } assert.strictEqual(R.spawnGap(0), R.spawnGap(19.9)); assert.strictEqual(R.spawnGap(5000), 1.1); });
+t("endless: spawn gap shrinks every 20 s, cumulatively, to a floor", () => { const R = globalThis.EndlessRules; let prev = Infinity; for (let s = 0; s <= 600; s += 20) { const gp = R.spawnGap(s); assert(gp <= prev); if (s >= 20 && gp > 1.1) assert(gp < R.spawnGap(s - 20)); prev = gp; } assert.strictEqual(R.spawnGap(0), R.spawnGap(19.9)); assert.strictEqual(R.spawnGap(5000), 0.9); });
+t("endless waves: every 20 s, bigger each time, staggered, two lanes left open, darts spaced", () => { const R = globalThis.EndlessRules; let prev = 0;
+  for (let n = 1; n <= 15; n++) { const w = R.waveSpawns(77, n); assert(w.length > prev || w.length === 34, "wave " + n + " grows"); prev = w.length;
+    const ts = w.map((s) => s.t), lanes = new Set(w.map((s) => s.y)); assert(Math.min(...ts) >= n * 20 && Math.max(...ts) - Math.min(...ts) >= 0.5 && Math.max(...ts) <= n * 20 + 6); assert(lanes.size <= 6, "at least two lanes open");
+    const darts = w.map((s, i) => (s.type === "dart" ? s.t : null)).filter((x) => x !== null).sort((a, b) => a - b); for (let i = 1; i < darts.length; i++) assert(darts[i] - darts[i - 1] >= 0.5);
+    if (n >= 3) assert(w.some((s) => s.type.startsWith("bulwark"))); }
+  const all = R.createSchedule(77).take(130), ids = all.map((s) => s.id); assert.strictEqual(new Set(ids).size, ids.length, "unique ids");
+  const a = R.createSchedule(77).take(60).concat(R.createSchedule(77).take(0)), b = R.createSchedule(77); const chunked = [...b.take(25), ...b.take(60)]; assert.deepStrictEqual(chunked.map((s) => s.id), R.createSchedule(77).take(60).map((s) => s.id), "deterministic regardless of chunking"); });
 t("endless: enemy speed ramps smoothly and resets each new run", () => { const R = globalThis.EndlessRules; assert.strictEqual(R.speedAt(0), 1); assert(R.speedAt(120) > 1 && R.speedAt(240) > R.speedAt(120)); assert(Math.abs(R.speedAt(100.1) - R.speedAt(100)) < 0.001); const fresh = createGame({ mode: "endless", seed: 5 }); assert.strictEqual(fresh.t, 0); });
 t("ranked endless always starts at one shot, regardless of avatar", () => { for (const a of AVATARS) assert.strictEqual(createGame({ mode: "endless", seed: 1, avatar: a.id }).player.tier, 1); });
 t("campaign levels start at the tier the app passes in (the app always passes 1)", () => { assert.strictEqual(createGame({ mode: "campaign", level: 12, tier: 1 }).player.tier, 1); assert.strictEqual(createGame({ mode: "campaign", level: 12 }).player.tier, 1); });

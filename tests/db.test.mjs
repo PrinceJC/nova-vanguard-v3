@@ -47,6 +47,7 @@ await t("players can change their own avatar but not someone else's", async () =
   const r = await db.query(`select id, avatar from public.profiles order by id`);
   assert.strictEqual(r.rows.find((x) => x.id === A).avatar, "nova"); assert.strictEqual(r.rows.find((x) => x.id === B).avatar, "lumi");
 });
+await t("new hero ids are accepted", async () => { for (const id of ["astra", "seraphine", "elara", "kai", "lyra", "rook"]) await as(A, "update public.profiles set avatar = $2 where id = $1", [A, id]); await as(A, "update public.profiles set avatar = 'nova' where id = $1", [A]); });
 await t("unknown avatar ids are rejected", () => fails(as(A, "update public.profiles set avatar = 'not_real' where id = $1", [A]), /avatar_known/));
 await t("saves: players read only their own save", async () => { const r = await as(B, "select * from public.saves"); assert.strictEqual(r.rows.length, 0); });
 await t("saves: players cannot write another player's save", async () => {

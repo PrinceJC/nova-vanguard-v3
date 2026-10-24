@@ -260,6 +260,11 @@ body.game { position: fixed; inset: 0; overflow: hidden; }
 .phoneicon span { position: absolute; left: 50%; bottom: 6px; width: 14px; height: 4px; margin-left: -7px; border-radius: 2px; background: #8ff7ef; }
 @keyframes rot { 0%, 20% { transform: rotate(0); } 55%, 80% { transform: rotate(-90deg); } 100% { transform: rotate(0); } }
 @media (prefers-reduced-motion: reduce) { .phoneicon { animation: none; transform: rotate(-90deg); } }
+
+.avgrid { grid-template-columns: repeat(7, 1fr); gap: 5px; }
+.avtile { font-size: 12px; padding: 3px 1px; }
+.avtile .portrait { width: 36px; height: 36px; }
+.avtile .cat { font-size: 10px; }
 </style>
 </head>
 <body>
@@ -280,7 +285,7 @@ const SPRITE_SVG = {"player": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox
   if (typeof module === "object" && module.exports) module.exports = m; else root.EndlessRules = m;
 })(typeof self !== "undefined" ? self : this, function () {
   "use strict";
-  const VERSION = 4;
+  const VERSION = 5;
   const PLAYER_HP = 3, INV_MIN = 0.9, BLAST_CD = 14, FIRE_INT = 0.15, BLAST_DMG = 10;
   const HEAL_CAP = 2, HEAL_WINDOW = 300, PICKUP_LIFE = 30, ENTRY_MIN = 0.15, MAX_LIFE = 45;
   const TIER_SHOTS = [0, 1, 3, 6], TIER_DPS = TIER_SHOTS.map((n) => n / FIRE_INT), MAX_TIER_BONUS = 1000;
@@ -316,13 +321,33 @@ const SPRITE_SVG = {"player": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox
 
   // Every 20 s the gap between enemy packs shrinks by 8% (cumulative), down to a floor. Plain multiplication keeps
   // browser and server bit-identical. Enemy movement speed ramps smoothly with speedAt(t).
-  const STEP_SECONDS = 20, STEP_FACTOR = 0.92, GAP_START = 4.6, GAP_MIN = 1.1;
+  const STEP_SECONDS = 20, STEP_FACTOR = 0.92, GAP_START = 3.0, GAP_MIN = 0.9, WAVE_EVERY = 20, LANES = 8;
   function spawnGap(t) { const steps = Math.floor(t / STEP_SECONDS); let g = GAP_START; for (let i = 0; i < steps && g > GAP_MIN; i++) g *= STEP_FACTOR; return Math.max(GAP_MIN, g); }
   function speedAt(t) { return 1 + Math.min(1, t / 420); }
   function threatLevel(t) { return 1 + Math.floor(t / STEP_SECONDS); }
+  // Wave n arrives at 20·n s: more enemies each time, mixing standard, armored and fast types. Arrivals are staggered in
+  // groups of four, and two adjacent lanes are always left open as a dodge route. Darts are spaced apart.
+  function waveSpawns(seed, n) {
+    const r = rng((seed ^ Math.imul(n + 7, 0x85ebca6b)) >>> 0), t0 = n * WAVE_EVERY;
+    const count = Math.min(34, 6 + n * 2), armoredShare = n >= 2 ? Math.min(0.3, 0.06 * n) : 0, fastShare = n >= 3 ? Math.min(0.2, 0.04 * n) : 0;
+    const maxTier = t0 >= 270 ? 4 : t0 >= 180 ? 3 : t0 >= 100 ? 2 : 1;
+    const std = POOL.filter((p) => STATS[p[0]][3] === "n" && p[1] <= t0).map((p) => p[0]);
+    const gapA = Math.floor(r() * (LANES - 1)), open = [];
+    for (let l = 0; l < LANES; l++) if (l !== gapA && l !== gapA + 1) open.push(l);
+    const out = []; let lastFast = -9;
+    for (let i = 0; i < count; i++) {
+      const x = r(); let type;
+      if (x < fastShare && i - lastFast >= 4) { type = "dart"; lastFast = i; }
+      else if (x < fastShare + armoredShare) type = "bulwark" + (1 + Math.floor(r() * maxTier));
+      else type = std[Math.floor(r() * std.length)];
+      const lane = open[Math.floor(r() * open.length)], st = STATS[type];
+      out.push({ id: 1000000 + n * 100 + i, t: r3(t0 + 0.4 + Math.floor(i / 4) * 0.55 + r() * 0.25), type, y: r3(0.12 + lane * (0.76 / (LANES - 1))), hp: st[0], shield: st[1], score: st[2], elite: false, wave: n });
+    }
+    return out;
+  }
   function createSchedule(seed) {
     const r = rng(seed);
-    let packT = 2, id = 0;
+    let packT = 2, id = 0, nextWave = 1;
     const buf = [];
     function pack() {
       const t = packT, d = t / 60;
@@ -369,6 +394,7 @@ const SPRITE_SVG = {"player": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox
       // returns every spawn with t <= untilT, in time order, each exactly once
       take(untilT) {
         while (packT <= untilT + 12) pack();
+        while (nextWave * WAVE_EVERY <= untilT + 12) for (const s of waveSpawns(seed, nextWave++)) buf.push(s);
         buf.sort((a, b) => a.t - b.t || a.id - b.id);
         const out = [];
         while (buf.length && buf[0].t <= untilT) out.push(buf.shift());
@@ -478,7 +504,7 @@ const SPRITE_SVG = {"player": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox
     return { ok: true, score: Math.round(score), kills: kills.length, elites, survival: end };
   }
 
-  return { VERSION, STATS, POOL, POWERUPS, UPGRADES, TIER_SHOTS, spawnGap, speedAt, threatLevel, STEP_SECONDS, FIRE_INT, MAX_TIER_BONUS, PLAYER_HP, BLAST_CD, BLAST_DMG, HEAL_CAP, HEAL_WINDOW, PICKUP_LIFE, PICK_POINTS,
+  return { VERSION, STATS, POOL, POWERUPS, UPGRADES, WAVE_EVERY, waveSpawns, TIER_SHOTS, spawnGap, speedAt, threatLevel, STEP_SECONDS, FIRE_INT, MAX_TIER_BONUS, PLAYER_HP, BLAST_CD, BLAST_DMG, HEAL_CAP, HEAL_WINDOW, PICKUP_LIFE, PICK_POINTS,
     rng, hash01, createSchedule, newDropState, dropFor, milestonePoints, validate };
 });
 
@@ -488,7 +514,9 @@ const SPRITE_SVG = {"player": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox
 // Avatar ids are unchanged so unlocks/selections carry over. Stats are identical for every hero;
 // weapon category only changes artwork and projectile visuals.
 const AVATARS = [
-  { id: "lumi", name: "Astra", title: "Sunrise Vanguard", cat: "cannon", unlock: 0, hair: "long", bangs: "swept", hc: ["#ff8a5c", "#ffd0a8", "#c4452e"], skin: "#f6dcc8", eye: "#f2a93b",
+  { id: "lumi", name: "Nova", title: "Silver Vanguard", cat: "shield", unlock: 0, hair: "long", bangs: "parted", hc: ["#dde4f0", "#ffffff", "#98a6c2"], skin: "#f6dfd0", eye: "#3a8cff",
+    out: ["#2a5ad8", "#eef3fb", "#7fd0ff", "#c3cede"], wc: ["#d8e0ee", "#1e3a8a", "#7fd0ff"], acc: "wingclip", shot: ["#8fd8ff", "#ffffff"], weaponName: "Vanguard aegis" },
+  { id: "astra", name: "Astra", title: "Sunrise Vanguard", cat: "cannon", unlock: 0, hair: "long", bangs: "swept", hc: ["#ff8a5c", "#ffd0a8", "#c4452e"], skin: "#f6dcc8", eye: "#f2a93b",
     out: ["#f4f6ff", "#2bb3a8", "#f2c14e", "#d99a2b"], wc: ["#f4f6ff", "#1f6f74", "#f2c14e"], acc: "star", shot: ["#7ff3e4", "#ffffff"], weaponName: "Dawnfire cannon" },
   { id: "nova", name: "Lumi", title: "Starlight Marksman", cat: "sniper", unlock: 0, hair: "sidetail", bangs: "swept", hc: ["#c9bde8", "#f2eeff", "#8f82c4"], skin: "#f6dcc8", eye: "#1fb5b8",
     out: ["#1f2a5c", "#eef1fb", "#8b5cf6", "#4a3b6b"], wc: ["#eef1fb", "#1f2a5c", "#8b5cf6"], acc: "clip", shot: ["#9ff3ff", "#ffffff"], weaponName: "Prism longrifle" },
@@ -528,11 +556,21 @@ const AVATARS = [
     out: ["#f0ecf8", "#3a5aa8", "#e0b84a", "#b8b4c8"], wc: ["#e0b84a", "#f0ecf8", "#3a5aa8"], acc: "halo", shot: ["#fff6c8", "#ffffff"], weaponName: "Aegis rifle" },
   { id: "luma", name: "Luma", title: "Eclipse Herald", cat: "cannon", unlock: 80, hair: "sidetail", bangs: "swept", hc: ["#3a2a5c", "#7a62b0", "#1e1436"], skin: "#f6dcc8", eye: "#c88cff",
     out: ["#120c20", "#c8b8f0", "#c88cff", "#06040e"], wc: ["#2a2048", "#c8b8f0", "#c88cff"], acc: "horns", shot: ["#e4ccff", "#ffffff"], weaponName: "Umbra cannon" },
+  { id: "seraphine", name: "Seraphine", title: "Dawnwing Guardian", cat: "gun", board: "wings", unlock: 12, hair: "wavy", bangs: "parted", hc: ["#ffe6a8", "#fff8e0", "#d8a84a"], skin: "#f8e2d4", eye: "#e07ab8",
+    out: ["#fff8f0", "#f4c6dc", "#ffcf5c", "#e8b44a"], wc: ["#fff4e0", "#c47a9a", "#ffcf5c"], acc: "halo", shot: ["#ffe9b0", "#ffffff"], weaponName: "Radiant pistol" },
+  { id: "elara", name: "Elara", title: "Starlit Wandmage", cat: "wand", unlock: 22, hair: "bun", bangs: "swept", hc: ["#b48cff", "#e8dcff", "#6a48c0"], skin: "#f6dcc8", eye: "#5ef2c0",
+    out: ["#3a2a7a", "#efe8ff", "#5ef2c0", "#9a7ad8"], wc: ["#e8dcff", "#3a2a7a", "#5ef2c0"], acc: "witchhat", shot: ["#b8fff0", "#ffffff"], weaponName: "Comet wand" },
+  { id: "kai", name: "Kai", title: "Neon Skater", cat: "gun", board: "skate", unlock: 32, hair: "spiky", bangs: "spiky", hc: ["#3ad0a8", "#a8ffe8", "#1a7a62"], skin: "#c68a5e", eye: "#ffd34f",
+    out: ["#2a2a3e", "#ffd34f", "#ff5fa8", "#14141e"], wc: ["#3a3a54", "#ffd34f", "#ff5fa8"], acc: "headphones", shot: ["#ffe27a", "#ffffff"], weaponName: "Kickflip blaster" },
+  { id: "lyra", name: "Lyra", title: "Moonleaf Archer", cat: "bow", unlock: 42, hair: "braid", bangs: "parted", hc: ["#e8eef8", "#ffffff", "#a8b4cc"], skin: "#f3d2b8", eye: "#3fd47a",
+    out: ["#2e5a3a", "#e8f0d8", "#8ff0a8", "#c8d8b0"], wc: ["#c8d8b0", "#2e5a3a", "#8ff0a8"], acc: "leafcrown", shot: ["#d8ffe0", "#ffffff"], weaponName: "Moonleaf bow" },
+  { id: "rook", name: "Rook", title: "Iron Deadeye", cat: "sniper", heavy: true, unlock: 52, hair: "cap", bangs: "straight", hc: ["#2a2420", "#5a4a40", "#14100c"], skin: "#8d5a3b", eye: "#ff8a5c",
+    out: ["#4a4e5a", "#d8dce4", "#ff8a5c", "#2a2e38"], wc: ["#5a606e", "#2a2e38", "#ff8a5c"], acc: "scope", shot: ["#ffd8c0", "#ffffff"], weaponName: "Ironsight railgun" },
 ];
 const AVATAR_BY_ID = Object.fromEntries(AVATARS.map((a) => [a.id, a]));
-const WEAPON_CATS = { cannon: "Cannon", bow: "Bow", sniper: "Sniper rifle", gun: "Rifle / gun" };
+const WEAPON_CATS = { cannon: "Cannon", bow: "Bow", sniper: "Sniper rifle", gun: "Rifle / gun", shield: "Shield cannon", wand: "Magic wand" };
 function avatarUnlocked(av, completedCount) { return av.unlock === 0 || completedCount >= av.unlock; }
-const MUZZLES = { cannon: [95, 41], sniper: [99, 40], gun: [88, 41], bow: [72, 41] };   // projectile origin, sprite units
+const MUZZLES = { cannon: [95, 41], sniper: [99, 40], gun: [88, 41], bow: [72, 41], shield: [70, 43], wand: [66, 33] };   // projectile origin, sprite units
 const SPRITE_ANCHOR = [31, 41];                                                          // hitbox centre (chest)
 
 // ------------------------------------------------------------ SVG
@@ -558,6 +596,7 @@ function hairBack(a, p) {
     case "twintail": return `<path d="M20 13 Q6 16 5 31 Q6 40 11 45 Q10 33 17 24 Z" ${f}/><path d="M42 12 Q54 16 53 31 Q52 38 48 42 Q48 30 42 23 Z" ${f}/><path d="M15 17 Q8 25 8 35" fill="none" stroke="${l}" stroke-width="1.4" stroke-linecap="round"/>`;
     case "bob": return `<path d="M17 22 Q15 6 31 5 Q47 6 46 22 L46 33 Q41 31 39 28 L24 28 Q21 32 16 33 Z" ${f}/>`;
     case "long": return `<path d="M18 18 Q14 6 31 5 Q46 6 46 20 Q47 34 42 44 Q34 42 26 47 Q20 46 14 49 Q4 46 0 40 Q8 38 10 32 Q12 24 18 18 Z" ${f}/><path d="M20 28 Q14 36 6 41 M24 34 Q20 40 16 46" fill="none" stroke="${l}" stroke-width="1.3" stroke-linecap="round" opacity=".85"/>`;
+    case "wavy": return `<path d="M18 18 Q14 6 31 5 Q46 6 46 20 Q48 30 44 38 Q46 44 40 47 Q34 44 30 48 Q24 45 18 48 Q12 44 14 38 Q8 34 12 28 Q12 22 18 18 Z" ${f}/><path d="M18 30 Q14 36 18 42 M42 30 Q46 36 42 42" fill="none" stroke="${l}" stroke-width="1.2" stroke-linecap="round"/>`;
     case "spiky": return `<path d="M17 21 L10 12 L19 13 L16 3 L26 10 L31 1 L35 10 L44 4 L42 14 L51 13 L45 22 Z" ${f}/>`;
     case "bun": return `<circle cx="22" cy="7" r="6.5" ${f}/><path d="M18 5 Q21 2 25 4" fill="none" stroke="${l}" stroke-width="1.3"/>`;
     case "braid": { let s = ""; for (let i = 0; i < 6; i++) s += `<ellipse cx="${19 - i * 2.6}" cy="${26 + i * 4.2}" rx="3.7" ry="3.1" fill="url(#${p}h)" ${st(1.2)}/>`; return s + `<path d="M5 50 L3 54 L8 53 Z" fill="${a.out[2]}" ${st(1)}/>`; }
@@ -594,6 +633,11 @@ function accessory(a, p) {
     case "glasses": return `<circle cx="34" cy="25" r="4" fill="none" stroke="${OL}" stroke-width="1.3"/><circle cx="41.5" cy="25" r="3.6" fill="none" stroke="${OL}" stroke-width="1.3"/>`;
     case "feather": return `<path d="M20 12 Q12 4 10 -2 Q18 2 22 10 Z" fill="${acc}" ${st(1)}/>`;
     case "catears": return `<path d="M22 9 L21 -1 L29 5 Z M37 5 L44 -1 L43 9 Z" fill="${a.hc[0]}" ${st(1.2)}/><path d="M23 6 L22.5 2 L26 4.5 Z M40 4.5 L42.5 2 L42 6 Z" fill="#ff9ad5"/>`;
+    case "wingclip": return `<path d="M20 9 Q14 4 10 6 Q14 8 15 11 Q11 11 9 14 Q14 14 18 13 Z" fill="url(#${p}g)" ${st(0.9)}/><circle cx="20" cy="11" r="2" fill="${a.shot[0]}" ${st(0.8)}/>`;
+    case "witchhat": return `<path d="M17 12 Q31 6 46 11 Q40 4 36 -6 Q34 -9 30 -8 Q26 -2 22 4 Z" fill="${a.out[0]}" ${st(1.2)}/><path d="M17 12 Q31 6 46 11" fill="none" stroke="url(#${p}g)" stroke-width="2"/><path d="M33 -2 L34.2 0.6 L37 1 L35 2.8 L35.6 5.6 L33 4.2 L30.4 5.6 L31 2.8 L29 1 L31.8 .6 Z" fill="${a.shot[0]}"/>`;
+    case "headphones": return `<path d="M18 20 Q18 4 32 4 Q45 4 45 18" fill="none" stroke="${OL}" stroke-width="3"/><path d="M18 20 Q18 4 32 4 Q45 4 45 18" fill="none" stroke="${a.out[2]}" stroke-width="1.6"/><rect x="42" y="16" width="6" height="9" rx="2.5" fill="${a.out[1]}" ${st(1)}/>`;
+    case "leafcrown": return [0, 1, 2, 3].map((i) => `<path d="M${22 + i * 5} ${8 - (i % 2) * 2} q2 -5 5 -3 q-1 4 -5 3 Z" fill="${a.out[2]}" ${st(0.7)}/>`).join("");
+    case "scope": return `<path d="M30 20.6 L44 20.6 L44 23 L30 23 Z" fill="${OL}"/><circle cx="41" cy="25" r="3.4" fill="none" stroke="${a.out[2]}" stroke-width="1.4"/>`;
     case "horns": return `<path d="M24 8 Q20 0 24 -3 Q25 3 28 6 Z M38 6 Q42 0 40 -4 Q44 2 42 8 Z" fill="url(#${p}g)" ${st(1.1)}/>`;
   }
   return "";
@@ -618,6 +662,20 @@ function weapon(a, p, frame) {
 <path d="M85 34.2 L93 31.4 L97 41 L93 50.6 L85 47.8 L88 41 Z" ${G}/>
 <circle cx="38" cy="42" r="5.4" fill="url(#${p}c)"/><circle cx="38" cy="42" r="2.8" fill="${sh}" ${st(0.9)}/>
 <path d="M64 41 L84 41" stroke="${sh}" stroke-width="1.2" opacity=".85"/>`;
+  if (a.cat === "shield") return `
+<path d="M50 28 L66 30 Q70 42 66 54 L50 58 Q44 43 50 28 Z" ${W}/>
+<path d="M52 31 L64 32.6 Q67.4 42 64 51.6 L52 54.6 Q47.6 43 52 31 Z" fill="none" stroke="url(#${p}g)" stroke-width="1.6"/>
+<path d="M57 34 L58.4 43 L57 52 M51 43 L66 43" stroke="${d}" stroke-width="1.4" fill="none" opacity=".7"/>
+<path d="M50 28 L54 22 L58 29 Z M50 58 L54 64 L58 57 Z" fill="url(#${p}g)" ${st(1)}/>
+<circle cx="58" cy="43" r="5" fill="url(#${p}c)"/><circle cx="58" cy="43" r="3" fill="${sh}" ${st(1)}/>
+<path d="M64 41 L70 42 L70 44 L64 45 Z" fill="${d}" ${st(0.9)}/>
+<path d="M53 32 Q56 31 59 32.4" stroke="#ffffff" stroke-width="1.2" opacity=".75" fill="none"/>`;
+  if (a.cat === "wand") return `
+<path d="M45 45 L62 35" stroke="${OL}" stroke-width="3.4" stroke-linecap="round"/><path d="M45 45 L62 35" stroke="url(#${p}w)" stroke-width="2" stroke-linecap="round"/>
+<path d="M49 42.6 L52 40.8" stroke="url(#${p}g)" stroke-width="2.6" stroke-linecap="round"/>
+<circle cx="64" cy="34" r="6" fill="url(#${p}c)"/>
+<path d="M64 28.6 L65.6 32.4 L69.4 33 L66.4 35.4 L67.2 39.2 L64 37 L60.8 39.2 L61.6 35.4 L58.6 33 L62.4 32.4 Z" fill="${sh}" ${st(0.9)}/>
+<circle cx="68" cy="29" r=".9" fill="#fff"/><circle cx="59" cy="30" r=".7" fill="#fff"/>`;
   if (a.cat === "sniper") return `
 <path d="M27 37.6 L38 36.4 L40 42.4 L29 44.4 Q26 41 27 37.6 Z" ${D}/>
 <path d="M37 36.6 L66 36.2 L68 42.2 L38 43 Z" ${W}/>
@@ -642,16 +700,23 @@ ${drawn ? `<path d="M62 22 L44 41 L62 60" stroke="#f6f2ff" stroke-width=".8" fil
 <path d="M44.6 41 L41 38.8 L43.4 41 L41 43.2 Z" fill="${acc}"/><path d="M48 41 L70 41" stroke="${sh}" stroke-width=".7" opacity=".85"/>`
     : `<path d="M62 22 Q63.8 41 62 60" stroke="#f6f2ff" stroke-width=".8" fill="none"/>`}`;
 }
-function hands(a) { return { cannon: [44, 46], sniper: [42, 43], gun: [46, 44], bow: [66, 41] }[a.cat]; }
+function hands(a) { return { cannon: [44, 46], sniper: [42, 43], gun: [46, 44], bow: [66, 41], shield: [52, 46], wand: [46, 44] }[a.cat]; }
 
 function avatarSVG(a, frame = "idle", view = "game") {
   const p = a.id + frame[0] + view[0], [m, inner, acc, trim] = a.out, sh = a.shot[0];
   const thr = frame === "fire" ? 5 : 4;
   const flow = a.hair === "long" || a.hair === "sidetail" || a.hair === "twintail" || a.hair === "wolf" ? `<path d="M18 14 Q2 12 -1 22 Q4 20 8 24 Q0 28 -2 36 Q6 31 12 32 Q8 38 9 44 Q14 34 20 26 Z" fill="url(#${p}h)" ${st(1.2)}/><path d="M14 16 Q4 18 2 24 M12 26 Q5 30 3 34" fill="none" stroke="${a.hc[1]}" stroke-width="1.3" stroke-linecap="round"/>` : "";
-  const board = `<path d="M2 57 Q6 52 16 52 L84 51 Q94 51 98 55 Q92 59 84 59 L14 60 Q5 60 2 57 Z" fill="url(#${p}m)" ${st(1.5)}/>
+  const boardKind = a.board || "glider";
+  const skate = `<path d="M14 58 Q12 54 18 54 L50 53.6 Q56 53.6 56 57 Q55 60 50 60 L19 60.4 Q14 60.4 14 58 Z" fill="url(#${p}m)" ${st(1.4)}/>
+<path d="M19 55.6 L50 55.2" stroke="url(#${p}g)" stroke-width="1.6"/><path d="M24 54 L28 51 L32 54 Z" fill="${a.out[2]}" ${st(0.8)}/>
+<ellipse cx="22" cy="62" rx="${frame === "fire" ? 5 : 4}" ry="1.8" fill="url(#${p}c)"/><ellipse cx="48" cy="62" rx="${frame === "fire" ? 5 : 4}" ry="1.8" fill="url(#${p}c)"/>
+<circle cx="22" cy="60.6" r="1.6" fill="${sh}" ${st(0.7)}/><circle cx="48" cy="60.6" r="1.6" fill="${sh}" ${st(0.7)}/>`;
+  const wingFeet = `<path d="M26 61 l2 4 l2 -4 M33 61 l2 4 l2 -4" stroke="${sh}" stroke-width="1.2" fill="none" opacity=".8"/>`;
+  const glider = `<path d="M2 57 Q6 52 16 52 L84 51 Q94 51 98 55 Q92 59 84 59 L14 60 Q5 60 2 57 Z" fill="url(#${p}m)" ${st(1.5)}/>
 <path d="M14 53.6 L84 52.9" stroke="url(#${p}g)" stroke-width="1.6"/><path d="M20 57.4 L80 57" stroke="#ffffff" stroke-width=".9" opacity=".45"/>
 <path d="M40 52 L46 47 L52 52 Z M62 51.6 L66 48 L70 51.4 Z" fill="url(#${p}g)" ${st(1)}/>
 <ellipse cx="2.6" cy="56" rx="${frame === "fire" ? 6 : 4.6}" ry="2.8" fill="url(#${p}c)"/><ellipse cx="2.4" cy="56" rx="2" ry="1.2" fill="#ffffff"/>`;
+  const board = boardKind === "wings" ? wingFeet : boardKind === "skate" ? skate : glider;
   const legs = `<ellipse cx="28" cy="${60 + thr / 4}" rx="2.4" ry="${thr / 2 + 1}" fill="${sh}" opacity=".9"/><ellipse cx="35" cy="${60 + thr / 4}" rx="2.4" ry="${thr / 2 + 1}" fill="${sh}" opacity=".9"/>
 <path d="M25.5 49 L30.5 49 L30.5 57.5 Q28 59.2 25.5 57.5 Z" fill="url(#${p}m)" ${st(1.3)}/><path d="M32.5 49 L37.5 49 L37.5 57.5 Q35 59.2 32.5 57.5 Z" fill="url(#${p}m)" ${st(1.3)}/>
 <rect x="25.5" y="54.4" width="5" height="1.8" fill="url(#${p}g)"/><rect x="32.5" y="54.4" width="5" height="1.8" fill="url(#${p}g)"/>`;
@@ -670,17 +735,29 @@ function avatarSVG(a, frame = "idle", view = "game") {
   const arm = `<path d="M30 37 Q${(30 + hx[0]) / 2} ${hx[1] + 2} ${hx[0] - 2} ${hx[1]}" fill="none" stroke="${OL}" stroke-width="5.4" stroke-linecap="round"/><path d="M30 37 Q${(30 + hx[0]) / 2} ${hx[1] + 2} ${hx[0] - 2} ${hx[1]}" fill="none" stroke="${shade(m, -0.15)}" stroke-width="3.2" stroke-linecap="round"/><circle cx="${hx[0]}" cy="${hx[1]}" r="2.6" fill="url(#${p}s)" ${st(1)}/>`;
   const drawArm = a.cat === "bow" ? `<path d="M33 38 Q${frame === "fire" ? "38 37 40 39" : "40 39 44 41"}" fill="none" stroke="${OL}" stroke-width="5" stroke-linecap="round"/><path d="M33 38 Q${frame === "fire" ? "38 37 40 39" : "40 39 44 41"}" fill="none" stroke="${shade(m, -0.15)}" stroke-width="3" stroke-linecap="round"/><circle cx="${frame === "fire" ? 40 : 44}" cy="${frame === "fire" ? 39 : 41}" r="2.3" fill="url(#${p}s)" ${st(0.9)}/>` : "";
   const [mx, my] = MUZZLES[a.cat];
-  const flash = frame === "fire" && a.cat !== "bow" ? `<path d="M${mx - 1} ${my} L${mx + 9} ${my - 4} L${mx + 6} ${my} L${mx + 9} ${my + 4} Z" fill="${sh}"/><circle cx="${mx}" cy="${my}" r="2.6" fill="#ffffff"/>` : "";
+  const flash = frame === "fire" && a.cat !== "bow" ? (a.heavy ? `<path d="M${mx - 1} ${my} L${mx + 14} ${my - 7} L${mx + 9} ${my} L${mx + 14} ${my + 7} Z" fill="${sh}"/><path d="M${mx + 2} ${my - 5} L${mx + 6} ${my} L${mx + 2} ${my + 5}" stroke="#fff" stroke-width="1" fill="none"/>` : `<path d="M${mx - 1} ${my} L${mx + 9} ${my - 4} L${mx + 6} ${my} L${mx + 9} ${my + 4} Z" fill="${sh}"/>`) + `<circle cx="${mx}" cy="${my}" r="2.6" fill="#ffffff"/>` : "";
   const body = defs(a, p) + flow + hairBack(a, p) + board + legs + torso + head + sideLock + bangs(a, p) + eyes(a, p, frame) + accessory(a, p) + weapon(a, p, frame) + arm + drawArm + flash;
   if (view === "portrait") return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="12 -5 40 40" width="40" height="40"><defs><radialGradient id="${p}bg" cx=".5" cy=".4"><stop offset="0" stop-color="${shade(m, 0.2)}"/><stop offset="1" stop-color="#0b1030"/></radialGradient></defs><rect x="12" y="-5" width="40" height="40" fill="url(#${p}bg)"/><circle cx="16" cy="0" r=".5" fill="#fff"/><circle cx="48" cy="3" r=".4" fill="#fff"/>${body}</svg>`;
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 104 70" width="104" height="70">${body}</svg>`;
 }
 
-function registerAvatarSprites() { for (const a of AVATARS) for (const f of ["idle", "fire", "hurt"]) SPRITE_SVG[`av_${a.id}_${f}`] = avatarSVG(a, f); }
+const WING_PIVOT = [24, 36];   // shoulder point the wings flap around (sprite units)
+const WING_VB = [-40, -34, 140, 100];   // wider canvas so the full wingspan fits; same units as the body sprite
+function wingSVG(a) {
+  const p = a.id + "wg", b = a.out[1], acc = a.out[2], O = "#141030";
+  const wing = (rot, sc, op) => `<g transform="translate(24 36) rotate(${rot}) scale(${sc}) translate(-26 -36)" opacity="${op}">
+<path d="M26 36 C14 26 4 16 -1 2 C5 5 11 6 15 11 C10 11 5 14 2 18 C9 18 14 20 18 24 C11 26 6 30 4 35 C11 34 17 35 22 38 C16 41 12 45 11 50 C17 47 22 44 27 41 Z" fill="url(#${p}f)" stroke="${O}" stroke-width="1.3" stroke-linejoin="round"/>
+<path d="M24 34 Q14 24 5 9 M22 31 Q14 24 7 19 M22 36 Q14 33 8 33 M24 39 Q18 43 14 47" stroke="#ffffff" stroke-width="1" fill="none" opacity=".75" stroke-linecap="round"/></g>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${WING_VB.join(" ")}" width="${WING_VB[2]}" height="${WING_VB[3]}"><defs><linearGradient id="${p}f" x1="1" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#ffffff"/><stop offset=".55" stop-color="${b}"/><stop offset="1" stop-color="${acc}"/></linearGradient></defs>
+${wing(14, 1.45, 0.75)}${wing(-4, 1.75, 1)}</svg>`;
+}
+function registerAvatarSprites() {
+  for (const a of AVATARS) { for (const f of ["idle", "fire", "hurt"]) SPRITE_SVG[`av_${a.id}_${f}`] = avatarSVG(a, f); if (a.board === "wings") SPRITE_SVG[`avw_${a.id}`] = wingSVG(a); }
+}
 const PORTRAIT_CACHE = {};
 function avatarPortrait(id) { if (!PORTRAIT_CACHE[id]) { const a = AVATAR_BY_ID[id] || AVATARS[0]; PORTRAIT_CACHE[id] = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(avatarSVG(a, "idle", "portrait")); } return PORTRAIT_CACHE[id]; }
 function avatarFull(id, frame = "idle") { const a = AVATAR_BY_ID[id] || AVATARS[0]; return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(avatarSVG(a, frame)); }
-if (typeof module === "object" && module.exports) module.exports = { AVATARS, avatarSVG, AVATAR_BY_ID, avatarUnlocked, MUZZLES, SPRITE_ANCHOR, WEAPON_CATS };
+if (typeof module === "object" && module.exports) module.exports = { AVATARS, avatarSVG, wingSVG, AVATAR_BY_ID, avatarUnlocked, MUZZLES, SPRITE_ANCHOR, WEAPON_CATS, WING_PIVOT, WING_VB };
 
 /* src/enemies2.js */
 "use strict";
@@ -1324,8 +1401,8 @@ function updateEndlessFlow(g, dt) {
     spawnEnemy(g, s.type, y, undefined, { hp: s.hp, shield: s.shield, sid: s.id, elite: s.elite, score: s.score });
   }
   for (const u of EndlessRules.UPGRADES) if (!g.upDone[u.id] && g.t >= u.t) { g.upDone[u.id] = true; g.pickups.push({ x: W + 20, y: 40 + u.y * (H - 80), kind: "up", t: 0, vy: 0, pid: u.id }); }
-  const lvl = EndlessRules.threatLevel(g.t);
-  if (lvl !== g.threat) { if (g.threat) { floatText(g, W / 2, 150, `Threat level ${lvl}: more enemies, faster`, "#ff9ad5", 20); ev(g, "sfx", { name: "warning" }); } g.threat = lvl; }
+  const nextWave = Math.floor(g.t / EndlessRules.WAVE_EVERY) + 1;
+  if (nextWave * EndlessRules.WAVE_EVERY - g.t <= 2 && g.warned !== nextWave) { g.warned = nextWave; ev(g, "sfx", { name: "warning" }); }
   const m = Math.floor(g.t / 60);
   if (m > g.milestone) { g.milestone = m; const pts = 250 * m; g.score += pts; floatText(g, W / 2, 110, `${m} min survived  +${pts}`, "#ffe08a"); ev(g, "sfx", { name: "clear" }); }
   const th = Math.floor(g.t / 120) % WORLDS.length;
@@ -2169,6 +2246,18 @@ function drawMotes(ctx, g, now) {
   ctx.globalAlpha = 1;
 }
 
+// draws a hero (wings flap behind the body around the shoulder); cx, cy = centre of the body sprite in world units
+function drawAvatarArt(ctx, av, frame, cx, cy, K, now, o = {}) {
+  if (av.board === "wings") {
+    const flap = Math.sin(now / 150), px = cx + (WING_PIVOT[0] - 50) * K, py = cy + (WING_PIVOT[1] - 33) * K;
+    ctx.save(); ctx.translate(px, py); ctx.rotate(-0.1 * flap); ctx.scale(1, 0.84 + 0.16 * flap); ctx.translate(-px, -py);
+    drawSprWH(ctx, `avw_${av.id}`, cx + (WING_VB[0] + WING_VB[2] / 2 - 50) * K, cy + (WING_VB[1] + WING_VB[3] / 2 - 33) * K, WING_VB[2] * K, WING_VB[3] * K, { alpha: o.alpha });
+    ctx.restore();
+  }
+  const pu = o.pulse || 1;
+  drawSprWH(ctx, `av_${av.id}_${frame}`, cx, cy, 104 * K * pu, 70 * K * pu, { alpha: o.alpha, skew: o.skew, white: o.white });
+}
+
 // ============================================================ player (avatar) with animation states
 function drawPlayer(ctx, g, set, now, Q) {
   const p = g.player, av = AVATAR_BY_ID[g.avatar] || AVATARS[0], sh = av.shot[0];
@@ -2176,7 +2265,7 @@ function drawPlayer(ctx, g, set, now, Q) {
     if (p.deadT > 1.3) return;
     const k = p.deadT / 1.3;
     ctx.save(); ctx.translate(p.x - k * 30, p.y + k * k * 160); ctx.rotate(k * 5); ctx.globalAlpha = 1 - k;
-    drawSprWH(ctx, `av_${av.id}_hurt`, 0, 0, 104 * PLAYER_ART_K, 70 * PLAYER_ART_K); ctx.restore(); return;
+    drawAvatarArt(ctx, av, "hurt", 0, 0, PLAYER_ART_K, now); ctx.restore(); return;
   }
   let a = 1;
   if (p.inv > 0) a = set.reduced ? 0.55 : Math.floor(now / 80) % 2 ? 0.3 : 1;
@@ -2194,8 +2283,9 @@ function drawPlayer(ctx, g, set, now, Q) {
   if (Q > 0 && p.muzzle > 0) drawGlow(ctx, p.bullet ? BULLET_POWERUPS[p.bullet.kind].color : sh, p.x + mz[0] + 4, p.y + mz[1], 22, 0.85);
   if (p.upT > 0 && Q > 0) drawGlow(ctx, "#ffd34f", p.x + mz[0] * 0.6, p.y + mz[1], 46, p.upT);
   const recoil = av.cat === "cannon" ? p.recoil * 1.6 : av.cat === "sniper" ? p.recoil * 1.2 : av.cat === "bow" ? 0 : p.recoil * 0.7;
-  ctx.save(); ctx.translate(-recoil, bob); ctx.rotate(p.tilt * 0.6);
-  drawSprWH(ctx, `av_${av.id}_${frame}`, cx, cy, AW * pulse, AH * pulse, { alpha: a, skew: Math.sin(now / 300) * 0.012, white: p.hurtT > 0.25 ? 0.6 : 0 });
+  const lean = av.board === "skate" ? (p.muzzle > 0 ? -0.06 : 0) + Math.sin(now / 260) * 0.03 : 0;
+  ctx.save(); ctx.translate(-recoil, bob); ctx.rotate(p.tilt * 0.6 + lean);
+  drawAvatarArt(ctx, av, frame, cx, cy, K, now, { alpha: a, pulse, skew: Math.sin(now / 300) * 0.012, white: p.hurtT > 0.25 ? 0.6 : 0 });
   ctx.restore();
   if (p.healT > 0) { ctx.strokeStyle = "#6fe04a"; ctx.lineWidth = 3; ctx.globalAlpha = p.healT / 0.6; ctx.beginPath(); ctx.arc(p.x, p.y - 4, 40 - p.healT * 20, 0, TAU); ctx.stroke(); ctx.globalAlpha = 1; }
   if (p.upT > 0) { ctx.strokeStyle = "#ffd34f"; ctx.lineWidth = 3; ctx.globalAlpha = p.upT / 0.8; ctx.beginPath(); ctx.arc(p.x, p.y - 4, 46 - p.upT * 24, 0, TAU); ctx.stroke(); ctx.globalAlpha = 1; }
@@ -2222,10 +2312,16 @@ function drawPlayerShots(ctx, g, Q) {
       ctx.fillStyle = col; ctx.strokeStyle = "#120c22"; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(15, 0); ctx.lineTo(6, -4.4); ctx.lineTo(8, 0); ctx.lineTo(6, 4.4); ctx.closePath(); ctx.fill(); ctx.stroke();
       ctx.fillStyle = av.out[2]; ctx.beginPath(); ctx.moveTo(-11, 0); ctx.lineTo(-17, -4); ctx.lineTo(-14, 0); ctx.lineTo(-17, 4); ctx.closePath(); ctx.fill();
       ctx.fillStyle = core; ctx.beginPath(); ctx.arc(12, 0, 1.4, 0, TAU); ctx.fill();
+    } else if (cat === "wand") { // glowing magic orb with a sparkle trail
+      if (Q > 0) { for (let k = 1; k <= 3; k++) { ctx.globalAlpha = 0.5 - k * 0.12; ctx.fillStyle = col; ctx.beginPath(); ctx.arc(-k * 7, Math.sin(s.age * 30 + k) * 2.5, 3.2 - k * 0.6, 0, TAU); ctx.fill(); } ctx.globalAlpha = 1; }
+      if (Q > 1) { ctx.globalAlpha = 0.55; ctx.drawImage(glow(col), -14, -14, 28, 28); ctx.globalAlpha = 1; }
+      ctx.fillStyle = col; ctx.strokeStyle = "#0f1e3a"; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(0, 0, 5.4, 0, TAU); ctx.fill(); ctx.stroke();
+      ctx.save(); ctx.rotate(s.age * 10); ctx.fillStyle = core; starPath(ctx, 0, 0, 4.2, 1.6, 4); ctx.fill(); ctx.restore();
     } else if (cat === "sniper") { // slim, bright precision round
       if (Q > 0) { const tg = ctx.createLinearGradient(-44, 0, -10, 0); tg.addColorStop(0, col + "00"); tg.addColorStop(1, col + "cc"); ctx.fillStyle = tg; ctx.fillRect(-44, -1.2, 34, 2.4); }
       if (Q > 1) { ctx.globalAlpha = 0.35; ctx.drawImage(glow(col, 32), -16, -6, 32, 12); ctx.globalAlpha = 1; }
-      ctx.fillStyle = "#0f1e3a"; ctx.beginPath(); ctx.ellipse(0, 0, 16, 2.8, 0, 0, TAU); ctx.fill();
+      if (av.heavy) { const tg = ctx.createLinearGradient(-70, 0, -10, 0); tg.addColorStop(0, col + "00"); tg.addColorStop(1, col + "ee"); ctx.fillStyle = tg; ctx.fillRect(-70, -2, 60, 4); }
+      ctx.fillStyle = "#0f1e3a"; ctx.beginPath(); ctx.ellipse(0, 0, av.heavy ? 20 : 16, av.heavy ? 3.6 : 2.8, 0, 0, TAU); ctx.fill();
       ctx.fillStyle = col; ctx.beginPath(); ctx.ellipse(0, 0, 15, 1.9, 0, 0, TAU); ctx.fill();
       ctx.fillStyle = core; ctx.beginPath(); ctx.ellipse(3, 0, 9, 0.9, 0, 0, TAU); ctx.fill();
     } else if (cat === "gun") { // compact luminous bullet
@@ -2514,7 +2610,21 @@ function drawHUD(ctx, g, set, now) {
   if (p.shield > 0) chip("Shield " + p.shield.toFixed(1) + "s", "#9ff7c4", p.shield / p.shieldMax);
   if (p.bullet) { const pu = BULLET_POWERUPS[p.bullet.kind]; chip(pu.name.split(" ")[0] + " " + p.bullet.t.toFixed(1) + "s", pu.color, p.bullet.t / POWERUP_TIME); }
   txt(ctx, g.score.toLocaleString(), W - 86, 36, 26, "#ffe08a", "right", 800);
-  if (g.mode === "endless") { txt(ctx, g.kills + " defeated", W - 86, 58, 14, "#c9bde8", "right"); const nx = EndlessRules.STEP_SECONDS - (g.t % EndlessRules.STEP_SECONDS); txt(ctx, `Threat ${EndlessRules.threatLevel(g.t)} · next in ${Math.ceil(nx)}s`, W - 86, 78, 13, "#ff9ad5", "right"); }
+  if (g.mode === "endless") {
+    const wave = Math.floor(g.t / EndlessRules.WAVE_EVERY), nx = EndlessRules.WAVE_EVERY - (g.t % EndlessRules.WAVE_EVERY);
+    txt(ctx, `Wave ${wave} · ${g.kills} defeated`, W - 86, 58, 14, "#c9bde8", "right");
+    txt(ctx, `Next wave in ${Math.ceil(nx)}s`, W - 86, 77, 13, "#ff9ad5", "right");
+    // personal records: best score and longest survival, turning gold when beaten during this run
+    const best = g.best, bs = best ? best.score : 0, bt = best ? best.ms / 1000 : 0;
+    const newScore = best ? g.score > bs : g.score > 0, newTime = best ? g.t > bt : g.t > 0;
+    ctx.fillStyle = "rgba(18,12,40,0.72)"; roundRect(ctx, W - 286, 86, 200, 42, 10); ctx.fill();
+    ctx.strokeStyle = newScore || newTime ? "#ffd34f" : "rgba(160,190,255,0.35)"; ctx.lineWidth = 1.5; ctx.stroke();
+    txt(ctx, "Best score", W - 276, 103, 12, "#a8b4e8"); txt(ctx, best ? (newScore ? g.score : bs).toLocaleString() : "—", W - 96, 103, 14, newScore ? "#ffd34f" : "#ffe08a", "right", 800);
+    txt(ctx, "Longest run", W - 276, 121, 12, "#a8b4e8"); txt(ctx, best ? fmtTime(newTime ? g.t : bt) : "—", W - 96, 121, 14, newTime ? "#ffd34f" : "#c8f0ff", "right", 800);
+    if (best && (newScore || newTime) && g.state === "endless") txt(ctx, "New best!", W - 186, 142, 13, "#ffd34f", "center", 900);
+    if (nx <= 2.2 && g.t > 1) { const k = set.reduced ? 1 : 0.6 + 0.4 * Math.sin(now / 90); ctx.globalAlpha = k; ctx.fillStyle = "rgba(255,63,122,0.16)"; ctx.fillRect(0, H / 2 - 44, W, 88);
+      txt(ctx, `Wave ${wave + 1} incoming!`, W / 2, H / 2 + 12, 40, "#ffd1e6", "center", 900); ctx.globalAlpha = 1; }
+  }
 
   if (g.boss && !g.boss.dying) {
     const b = g.boss, bw = 380, bx = W / 2 - bw / 2, by = H - 34;
@@ -2913,13 +3023,13 @@ function AvatarPreview({ id, w = 298, h: hh = 150 }) {
       ctx.setTransform(2, 0, 0, 2, 0, 0); ctx.clearRect(0, 0, w, hh);
       fire -= dt; let frame = "idle";
       if (t % 4 > 3.3) frame = "hurt";
-      else if (fire <= 0) { fire = 0.24; const tier = 1 + Math.floor(t / 2.5) % 3, mz = muzzleFor(id); for (const a of SHOT_PATTERNS[tier]) fake.pbul.push({ x: 92 + mz[0] * 0.85, y: hh / 2 + mz[1] * 0.85, vx: Math.cos(a) * 380, vy: Math.sin(a) * 380, age: 0 }); frame = "fire"; }
+      else if (fire <= 0) { fire = 0.24; const tier = 1 + Math.floor(t / 2.5) % 3, mz = muzzleFor(id); for (const a of SHOT_PATTERNS[tier]) fake.pbul.push({ x: 92 + mz[0] * 0.8 / PLAYER_ART_K * PLAYER_ART_K, y: hh / 2 + 10 + mz[1] * 0.8, vx: Math.cos(a) * 380, vy: Math.sin(a) * 380, age: 0 }); frame = "fire"; }
       else if (fire > 0.12) frame = "fire";
       for (const b of fake.pbul) { b.x += b.vx * dt; b.age += dt; }
       fake.pbul = fake.pbul.filter((b) => b.x < w + 20);
       drawPlayerShots(ctx, fake, 2);
       ctx.save(); ctx.translate(0, Math.sin(now / 160) * 3);
-      drawSprWH(ctx, `av_${id}_${frame}`, 92, hh / 2 + 2 * PLAYER_ART_K * 0.85, 124 * PLAYER_ART_K * 0.85, 84 * PLAYER_ART_K * 0.85, { white: frame === "hurt" && t % 4 < 3.45 ? 0.5 : 0 }); ctx.restore();
+      const K = PLAYER_ART_K * 0.8; drawAvatarArt(ctx, AVATAR_BY_ID[id], frame, 92 + (50 - SPRITE_ANCHOR[0]) * K, hh / 2 + 10 + (33 - SPRITE_ANCHOR[1]) * K, K, now, { white: frame === "hurt" && t % 4 < 3.45 ? 0.5 : 0 }); ctx.restore();
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
@@ -3090,6 +3200,16 @@ function App() {
   const [stage, setStage] = useState({ w: 960, h: 540, s: 1 });
   const [portrait, setPortrait] = useState(isPortrait());
   const perf = useRef({ cap: 2, dprCap: 2, frames: 0, acc: 0 }); const [perfTick, setPerfTick] = useState(0);
+  const endlessBest = useRef(null);
+  const bestKey = (uid) => "lumi-endless-best:" + uid;
+  const refreshBest = useCallback(() => {
+    if (!Net.user) return Promise.resolve(null);
+    if (!endlessBest.current) { try { endlessBest.current = JSON.parse(lsGet(bestKey(Net.user.id))) || null; } catch (e) {} }
+    return Net.endlessBest().then((b) => {
+      if (b && b.best_score != null) { endlessBest.current = { score: b.best_score, ms: b.best_survival_ms || 0 }; lsSet(bestKey(Net.user.id), JSON.stringify(endlessBest.current)); }
+      return b;
+    }).catch(() => null);
+  }, []);
   const canvas = useRef(null), game = useRef(null), input = useRef({}), screenRef = useRef(screen), saveRef = useRef(save), attract = useRef(null), runRef = useRef(null), dirty = useRef(false), saveTimer = useRef(null);
   screenRef.current = screen; saveRef.current = save;
   if (typeof window !== "undefined") window.__lumi = { game: () => game.current, screen: () => screenRef.current, save: () => saveRef.current };
@@ -3137,6 +3257,7 @@ function App() {
       const ok = await pushCloud();
       if (migrated && ok) { lsSet(migratedKey(prof.id), "1"); setSaveStatus("Your earlier progress was added to your account"); }
       if (prof.avatar !== merged.avatars.selected) Net.setAvatar(merged.avatars.selected).catch(() => {});
+      refreshBest();
       setScreen("menu");
     } catch (e) { setCfgError(friendlyError(e)); setScreen("neterror"); }
   }, []);
@@ -3230,6 +3351,8 @@ function App() {
     catch (e) { ranked = false; runRef.current = null; seed = (Math.random() * 2 ** 31) >>> 0; why = friendlyError(e); }
     game.current = createGame({ mode: "endless", seed, avatar: saveRef.current.avatars.selected, quality: saveRef.current.settings.quality });
     game.current.ranked = ranked; game.current.unrankedWhy = why;
+    if (!endlessBest.current && Net.user) { try { endlessBest.current = JSON.parse(lsGet(bestKey(Net.user.id))) || null; } catch (e) {} }
+    game.current.best = endlessBest.current ? { ...endlessBest.current } : null;
     input.current = {}; setScreen("playing"); Sound.duck(false); Sound.music(WORLDS[9].music, true);
   }, []);
   const onEndlessOver = useCallback(async () => {
@@ -3241,7 +3364,7 @@ function App() {
     if (!g.ranked) return;
     try {
       const r = await Net.submitRun(runRef.current, g.rec);
-      const [best, day, week] = await Promise.all([Net.endlessBest().catch(() => null), Net.standing("daily").catch(() => null), Net.standing("weekly").catch(() => null)]);
+      const [best, day, week] = await Promise.all([refreshBest(), Net.standing("daily").catch(() => null), Net.standing("weekly").catch(() => null)]);
       setEres({ ...base, status: "verified", score: r.score, best, day, week });
     } catch (e) {
       if (e.status === 422) setEres({ ...base, status: "rejected", reason: e.message });
@@ -3252,7 +3375,7 @@ function App() {
   const resubmit = async () => {
     const g = game.current; if (!g || !runRef.current) return;
     setEres((x) => ({ ...x, status: "submitting" }));
-    try { const r = await Net.submitRun(runRef.current, g.rec); const [best, day, week] = await Promise.all([Net.endlessBest().catch(() => null), Net.standing("daily").catch(() => null), Net.standing("weekly").catch(() => null)]); setEres((x) => ({ ...x, status: "verified", score: r.score, best, day, week })); }
+    try { const r = await Net.submitRun(runRef.current, g.rec); const [best, day, week] = await Promise.all([refreshBest(), Net.standing("daily").catch(() => null), Net.standing("weekly").catch(() => null)]); setEres((x) => ({ ...x, status: "verified", score: r.score, best, day, week })); }
     catch (e) { setEres((x) => ({ ...x, status: e.status === 422 ? "rejected" : e.status === 409 ? "duplicate" : "neterror", reason: e.status ? e.message : friendlyError(e) })); }
   };
 
@@ -3327,7 +3450,7 @@ function App() {
 
   if (screen === "welcome") overlay = h("div", { className: "title" },
     h("div", { className: "hero" }, h("img", { src: avatarFull("lumi"), alt: "Lumi, a chibi gunner with a silver-lavender ponytail", className: "heroimg" }),
-      h("h1", null, "Nova Vanguard"), h("p", { className: "tag" }, "100 levels. 20 heroes. One endless challenge.")),
+      h("h1", null, "Nova Vanguard"), h("p", { className: "tag" }, "100 levels. 26 heroes. One endless challenge.")),
     h("nav", { className: "menu", "aria-label": "Account" },
       h(Btn, { main: true, auto: true, onClick: () => { setAuthMode("signup"); setScreen("auth"); } }, "Create account"),
       h(Btn, { onClick: () => { setAuthMode("signin"); setScreen("auth"); } }, "Sign in"),
@@ -3443,7 +3566,8 @@ function App() {
       h("p", { className: "big" }, fmt(eres.score)),
       h("table", null, h("tbody", null,
         h("tr", null, h("td", null, "Survived"), h("td", null, ft(eres.survival))), h("tr", null, h("td", null, "Enemies defeated"), h("td", null, fmt(eres.kills))),
-        eres.best && h("tr", null, h("td", null, "Personal best"), h("td", null, fmt(eres.best.best_score))),
+        eres.best && h("tr", null, h("td", null, "Best score"), h("td", null, fmt(eres.best.best_score))),
+        eres.best && eres.best.best_survival_ms != null && h("tr", null, h("td", null, "Longest survival"), h("td", null, ft(eres.best.best_survival_ms / 1000))),
         eres.day && h("tr", null, h("td", null, "Today’s rank"), h("td", null, eres.day.rank ? `#${eres.day.rank} of ${eres.day.players}` : "—")),
         eres.week && h("tr", null, h("td", null, "This week’s rank"), h("td", null, eres.week.rank ? `#${eres.week.rank} of ${eres.week.players}` : "—")))),
       st === "submitting" && h("p", { className: "note", "aria-live": "polite" }, "Verifying your run with the server…"),
@@ -3505,7 +3629,7 @@ function DemoCanvas() {
 function Landing({ signedIn, onPlay, onCreate }) {
   const [board, setBoard] = useState({ daily: null, weekly: null, err: "" });
   useEffect(() => { Promise.all([Net.leaderboard("daily"), Net.leaderboard("weekly")]).then(([d, w]) => setBoard({ daily: d.slice(0, 5), weekly: w.slice(0, 5), err: "" })).catch((e) => setBoard({ daily: [], weekly: [], err: friendlyError(e) })); }, []);
-  const featured = ["aria", "nova", "kestrel", "zephyr", "luma"];
+  const featured = ["seraphine", "elara", "kai", "lyra", "astra"];
   const ft = (ms) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, "0")}`;
   const Board = ({ title, rows }) => h("div", { className: "lcard" }, h("h3", null, title),
     rows === null ? h("p", { className: "muted" }, "Loading…") : rows.length === 0 ? h("p", { className: "muted" }, "No ranked runs yet. The first verified score takes the top spot.") :
@@ -3516,15 +3640,15 @@ function Landing({ signedIn, onPlay, onCreate }) {
       h("div", { className: "links" }, ["Gameplay", "Campaign", "Heroes", "Endless", "Rankings", "How to play"].map((t) => h("a", { key: t, href: "#" + t.toLowerCase().replace(/ /g, "-") }, t))),
       h("button", { className: "lbtn primary small", onClick: onPlay }, signedIn ? "Continue Playing" : "Play Now")),
     h("header", { id: "top", className: "lhero" }, h(SpaceCanvas, { className: "herobg" }),
-      h("div", { className: "herocopy" }, h("h1", null, "Nova Vanguard"), h("p", { className: "tagline" }, "100 levels. 20 heroes. One endless challenge."),
+      h("div", { className: "herocopy" }, h("h1", null, "Nova Vanguard"), h("p", { className: "tagline" }, "100 levels. 26 heroes. One endless challenge."),
         h("p", { className: "lead" }, "A fantasy space shooter. Pick a cannon, bow, sniper rifle or gun, power up from one shot to six, grab timed bullet power-ups, and break through 100 bosses or chase the daily leaderboard."), cta(true)),
-      h("div", { className: "heroart" }, h("img", { className: "mainhero", src: avatarFull("lumi"), alt: "Astra, the sunrise vanguard, riding her glider with the Dawnfire cannon" }),
+      h("div", { className: "heroart" }, h("img", { className: "mainhero", src: avatarFull("lumi"), alt: "Nova, the silver vanguard, with her blue-and-silver shield cannon" }),
         h("div", { className: "squad" }, featured.map((id) => h("figure", { key: id }, h("img", { src: avatarPortrait(id), alt: "", width: 64, height: 64 }), h("figcaption", null, AVATAR_BY_ID[id].name)))))),
     h("section", { id: "gameplay", className: "lsec" }, h("h2", null, "See it in motion"), h("p", { className: "muted" }, "This is the game itself running live in your browser: real enemies, real bullets, and the special blast."), h("div", { className: "demowrap" }, h(DemoCanvas))),
     h("section", { id: "campaign", className: "lsec" }, h("h2", null, "The campaign"),
       h("div", { className: "stats" }, [["100", "levels"], ["10", "worlds"], ["1", "boss in every level"]].map(([n, l]) => h("div", { key: l, className: "stat" }, h("b", null, n), h("span", null, l)))),
       h("ol", { className: "worldlist" }, WORLDS.map((w, i) => h("li", { key: w.name, style: { "--acc": w.pal.acc } }, h("span", { className: "wn" }, i + 1), h("span", null, w.name), h("small", null, BOSSES[w.finale]().name))))),
-    h("section", { id: "heroes", className: "lsec" }, h("h2", null, "20 heroes"), h("p", { className: "muted" }, "Four are ready from the start. The rest unlock as you clear campaign levels. Every hero has the same hitbox, speed and damage, so picks are about style, not advantage."),
+    h("section", { id: "heroes", className: "lsec" }, h("h2", null, `${AVATARS.length} heroes`), h("p", { className: "muted" }, "Four are ready from the start. The rest unlock as you clear campaign levels. Every hero has the same hitbox, speed and damage, so picks are about style, not advantage."),
       h("div", { className: "herogrid" }, AVATARS.map((a) => h("figure", { key: a.id, className: "hcard" }, h("img", { src: avatarFull(a.id), alt: a.name, loading: "lazy" }), h("figcaption", null, h("b", null, a.name), h("span", null, a.title), h("small", { className: a.unlock ? "" : "starter" }, `${WEAPON_CATS[a.cat]} · ${a.unlock ? `Clear ${a.unlock} levels` : "Starter"}`)))))),
     h("section", { id: "endless", className: "lsec split" }, h("div", null, h("h2", null, "Endless mode"),
       h("p", null, "Waves never stop and enemies never shoot, but contact hurts. Armored Bulwarks take 5 to 20 hits, Darts flash a warning before they rush, and every 20 seconds the swarm gets thicker and faster."),
