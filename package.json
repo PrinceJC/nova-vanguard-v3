@@ -1,0 +1,17 @@
+{
+  "name": "lumi-blaster",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Lumi Blaster — 100-level side-scrolling shooter with ranked endless mode",
+  "scripts": {
+    "build": "node tools/build.js",
+    "test": "node tests/run-all.js"
+  },
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "@supabase/supabase-js": "2.45.4"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.2.12"
+  }
+}
