@@ -27,6 +27,7 @@ t("blast faster than its cooldown is rejected", () => { const e = clone(base); e
 t("kill credited to a blast that never happened is rejected", () => { const e = clone(base); const i = e.kills.findIndex((k) => k[2] === 0 && !e.blasts.some((b) => k[0] >= b && k[0] <= b + 1.2)); e.kills[i] = [e.kills[i][0], e.kills[i][1], 1]; assert.match(R.validate(seed, e, el).reason, /blast/); });
 t("run longer than wall-clock time since start is rejected", () => assert.match(R.validate(seed, base, base.end - 30).reason, /longer than/));
 t("run that ends without the player dying is rejected", () => { const e = clone(base); e.hits.pop(); assert(!R.validate(seed, e, el).ok); });
+t("rules use three lives", () => assert.strictEqual(R.PLAYER_HP, 3));
 t("hits inside the invulnerability window are rejected", () => { const e = clone(base); e.hits = e.hits.map((h, i) => (i === 1 ? e.hits[0] + 0.3 : h)).sort((a, b) => a - b); assert(!R.validate(seed, e, el).ok); });
 t("collecting an item that never dropped is rejected", () => { const e = clone(base); const k = e.kills.find((k) => R.dropFor(seed, R.createSchedule(seed).take(k[0] + 1).find((s) => s.id === k[1]), k[0], R.newDropState()) === null); e.picks.push([k[0] + 1, "d" + k[1]]); e.picks.sort((a, b) => a[0] - b[0]); assert(!R.validate(seed, e, el).ok); });
 t("collecting the same item twice is rejected", () => { const e = clone(base); e.picks.splice(2, 0, e.picks[1]); assert.match(R.validate(seed, e, el).reason, /twice/); });

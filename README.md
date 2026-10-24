@@ -84,7 +84,7 @@ Tuning lives in data: `ENEMIES` and `SHOT_PATTERNS` in `src/engine.js`, worlds a
 
 ## 6. How ranked endless stays fair
 
-Ranked rules are at **version 3** (contact-only enemies, rising spawn rate).
+Ranked rules are at **version 4** (three lives, contact-only enemies, armored and fast enemy families, rising spawn rate).
 
 - `run-start` creates a server-side run session with a random seed.
 - The seed fully determines the enemy schedule, elite placement and drops, so every player faces the same rules.
@@ -108,13 +108,22 @@ Browser tests (`tests/*.py`) use Playwright with a **test-only** fake backend (`
 
 ## 9. Heroes
 
-20 heroes, 5 per weapon type: **cannons** (Nova, Riko, Pip, Dax, Luma), **bows** (Aria, Kestrel, Mochi, Haru, Wren), **sniper rifles** (Lumi, Sable, Vega, Ines, Tamsin), and **rifles/guns** (Juno, Orla, Zephyr, Cass, Elio). Weapon type changes artwork and projectiles only; damage, fire rate, speed, health and hitbox are identical. Avatar IDs are unchanged from earlier versions (Nova uses the id `lumi`), so unlocks and selections carry over. Nova’s portrait is `tools/static/nova-portrait.jpg`; replace any portrait or sprite without touching game logic.
+20 heroes, 5 per weapon type: **cannons** (Astra, Riko, Pip, Dax, Luma), **bows** (Aria, Kestrel, Mochi, Haru, Wren), **sniper rifles** (Lumi, Sable, Vega, Ines, Tamsin), and **rifles/guns** (Juno, Orla, Zephyr, Cass, Elio). Weapon type changes artwork and projectiles only; damage, fire rate, speed, health and hitbox are identical. Avatar IDs are unchanged from earlier versions (Astra uses the id `lumi`), so unlocks and selections carry over. All hero art is generated from `src/avatars.js`; replace any sprite without touching game logic.
 
-## 10. Gameplay reference
+## 10. Phones, tablets and rotation
+
+- **Landscape:** starting a level or an Endless run asks the browser for fullscreen landscape. This works on Android/Chrome and when the game is installed to the home screen. On iPhone/iPad Safari (which can’t lock orientation), a **Rotate your device to landscape** screen appears in portrait and pauses play; rotating back resumes the same level.
+- **Sharp graphics:** the canvas renders at the device’s pixel density (up to 2×, capped at ~2.8 megapixels for large tablets), and backgrounds are pre-rendered at the same resolution, so art stays smooth on high-density screens. The 16:9 playfield is letter-boxed, never stretched.
+- **Touch:** a floating joystick on the left (drag anywhere), auto-fire, and a Blast button on the right; moving and blasting work at the same time. Controls sit inside the safe area (notches, rounded corners, home indicator). Scrolling, pinch/double-tap zoom and text selection are blocked during play.
+- **Performance:** if frames run slow, the game automatically trims effects and then canvas resolution. **Settings → Graphics** can also be set to Low manually.
+
+## 11. Gameplay reference
 
 - **Weapon:** 1 shot → 3 shots (centre + two angled) → 6 shots (three symmetrical pairs). Every elite drops one upgrade. At max power each extra upgrade is worth +1,000 points.
-- **Campaign upgrades last for the current run only.** Continuing to the next level keeps them; a new run, a level started from the map, or a retry after game over starts with a single shot.
+- **Campaign upgrades last for the current level only.** Every level starts with one bullet per attack: advancing to the next level, replaying a level, retrying after game over or starting a new run always resets the weapon. Unlocked levels and progress are never affected.
 - **Endless:** enemies don’t shoot; they hurt on contact. Every 20 seconds the threat level rises and enemies spawn more often, and enemy speed climbs smoothly over the run. Everything resets each new run.
-- **Health:** at most 2 health pickups spawn per campaign level, and at most 2 per 5 minutes in endless.
+- **Lives:** every run starts with 3 lives. Health pickups restore one (never above 3); at most 2 spawn per campaign level, and at most 2 per 5 minutes in endless.
+- **Bullet power-ups (10 s):** Comet (fast streaking rounds), Nova (big spinning stars, easier to land) and Prism (crystal shards). They change bullet look and speed only, so ranked damage stays fair.
+- **Endless enemies:** standard drones (1–2 hits), armored Bulwarks needing exactly 5 / 10 / 15 / 20 hits (bronze, silver, gold, void, with a health bar), and fast Darts that flash a warning line for 0.9 s before rushing.
 - **Special blast (E / Blast button):** brief charge, then an expanding wave from the muzzle that damages and clears enemy bullets exactly where the ring passes. 14-second recharge.
 - **Ranked periods:** daily resets at midnight and weekly at Monday 00:00, Asia/Manila time.

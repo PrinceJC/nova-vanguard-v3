@@ -66,7 +66,7 @@ td { padding: 3px 0; } td:last-child { text-align: right; font-weight: 800; colo
 .victory { text-align: center; } .victory h2 { font-size: 36px; } .victory .row { justify-content: center; } .vicimg { width: 120px; height: 120px; margin-top: -60px; }
 .pausebtn { position: absolute; top: 10px; right: 14px; width: 52px; height: 52px; border-radius: 14px; border: 3px solid var(--ink); background: rgba(43,33,82,.85); display: flex; gap: 8px; align-items: center; justify-content: center; cursor: pointer; padding: 0; }
 .pausebtn span { width: 7px; height: 20px; background: var(--text); border-radius: 2px; }
-.joyzone { position: absolute; left: 0; top: 80px; width: 420px; height: 460px; touch-action: none; }
+.joyzone { position: absolute; left: 0; top: 76px; width: 470px; height: 464px; touch-action: none; }
 .joybase { position: absolute; left: 50px; top: 320px; width: 120px; height: 120px; border-radius: 50%; border: 3px solid rgba(201,189,232,.6); background: rgba(43,33,82,.35); opacity: .45; pointer-events: none; }
 .joyknob { position: absolute; left: 32px; top: 32px; width: 50px; height: 50px; border-radius: 50%; background: rgba(201,189,232,.85); border: 3px solid var(--ink); }
 .specialbtn { position: absolute; right: 30px; bottom: 30px; width: 108px; height: 108px; border-radius: 50%; border: 4px solid var(--ink); background: #2b4c5a; color: #9fdfe6; font: 800 24px 'Baloo 2', sans-serif; touch-action: none; box-shadow: 0 5px 0 var(--ink); }
@@ -213,3 +213,39 @@ body.doc::before { content: ""; position: fixed; inset: 0 0 auto; height: env(sa
 .avtile .portrait { width: 42px; height: 42px; }
 .avlayout { grid-template-columns: 1fr 330px; align-items: start; }
 .page { overflow: hidden; }
+
+/* ---------------- visual refresh: Exo 2 display type, glass panels, gradient buttons ---------------- */
+h1, h2, h3, .btn, .tile, .big, .loading, .landing h1, .landing h2, .landing h3, .lbtn, .brand, .seg button, .wtab, .avtile, .userchip { font-family: 'Exo 2', 'Baloo 2', 'Trebuchet MS', sans-serif; }
+h2 { letter-spacing: .3px; font-weight: 800; }
+.panel { background: linear-gradient(160deg, rgba(34,26,78,.94), rgba(16,12,44,.94)); border: 1.5px solid rgba(160,190,255,.28); box-shadow: 0 10px 30px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.08); border-radius: 18px; }
+.btn { background: linear-gradient(180deg, #3a3080, #261e5c); border: 1.5px solid rgba(160,190,255,.35); box-shadow: 0 4px 0 #120c30, inset 0 1px 0 rgba(255,255,255,.12); border-radius: 14px; font-weight: 700; letter-spacing: .2px; }
+.btn:hover:not(:disabled) { background: linear-gradient(180deg, #4a3ea0, #30267a); }
+.btn.main { background: linear-gradient(180deg, #8ff7ef, #3ccfc4); color: #062a2e; border-color: #b8fffa; box-shadow: 0 4px 0 #157a74, 0 0 18px rgba(94,242,242,.35); }
+.btn.main:hover:not(:disabled) { background: linear-gradient(180deg, #b0fff8, #5ee0d6); }
+.tile, .avtile, .wtab { border: 1.5px solid rgba(160,190,255,.25); box-shadow: 0 4px 0 #120c30; }
+.tile.done { box-shadow: 0 4px 0 #120c30, inset 0 0 0 2px rgba(111,224,74,.45); }
+.field input, .field select { border: 1.5px solid rgba(160,190,255,.45); border-radius: 12px; background: #f6f4ff; }
+.field input:focus { outline: 3px solid rgba(94,242,242,.6); outline-offset: 1px; }
+.seg { border: 1.5px solid rgba(160,190,255,.35); }
+.title h1 { font-weight: 800; font-style: italic; -webkit-text-stroke: 0; paint-order: normal; text-shadow: 0 3px 0 #120c30, 0 0 30px rgba(94,242,242,.35); background: linear-gradient(180deg, #ffffff 35%, #a8e8ff 100%); -webkit-background-clip: text; background-clip: text; color: transparent; filter: drop-shadow(0 4px 0 #120c30); }
+.pausebtn { background: linear-gradient(180deg, rgba(58,48,128,.9), rgba(30,24,80,.9)); border: 1.5px solid rgba(160,190,255,.4); }
+.specialbtn { background: radial-gradient(circle at 40% 35%, #2f6a7a, #1a3a48); border: 2px solid rgba(160,240,255,.5); }
+.specialbtn.ready { background: radial-gradient(circle at 40% 35%, #c8fffa, #3ccfc4); box-shadow: 0 0 24px rgba(94,242,242,.6), 0 5px 0 #157a74; }
+.ico.comet { border-radius: 50%; border: 0; background: radial-gradient(circle at 60% 40%, #fff 0 25%, #ffb8f0 30% 60%, transparent 62%); box-shadow: -8px 0 6px -2px rgba(255,184,240,.6); }
+.landing .lhero h1 { font-style: italic; }
+
+/* ---------------- mobile + rotation ---------------- */
+body.game, body.game #root, .stage, .stage canvas { touch-action: none; overscroll-behavior: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+body.game { position: fixed; inset: 0; overflow: hidden; }
+.stage canvas { image-rendering: auto; }
+.ui input, .ui select, .ui textarea { -webkit-user-select: text; user-select: text; touch-action: manipulation; }
+.ui button { touch-action: manipulation; }
+.rotatemsg { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px;
+  padding-top: calc(24px + env(safe-area-inset-top, 0px)); padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  background: radial-gradient(circle at 50% 35%, #2a2470, #0b0a2a 70%); color: #f3eefc; text-align: center; font-family: 'Nunito', sans-serif; }
+.rotatemsg h2 { font-family: 'Exo 2', sans-serif; font-size: 26px; margin: 8px 0 0; color: #ffffff; }
+.rotatemsg p { margin: 0; color: #c9c4f0; max-width: 28ch; font-size: 16px; line-height: 1.45; }
+.phoneicon { width: 54px; height: 92px; border: 4px solid #8ff7ef; border-radius: 12px; position: relative; animation: rot 2.2s ease-in-out infinite; box-shadow: 0 0 24px rgba(94,242,242,.35); }
+.phoneicon span { position: absolute; left: 50%; bottom: 6px; width: 14px; height: 4px; margin-left: -7px; border-radius: 2px; background: #8ff7ef; }
+@keyframes rot { 0%, 20% { transform: rotate(0); } 55%, 80% { transform: rotate(-90deg); } 100% { transform: rotate(0); } }
+@media (prefers-reduced-motion: reduce) { .phoneicon { animation: none; transform: rotate(-90deg); } }

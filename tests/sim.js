@@ -2,8 +2,8 @@
 const fs = require("fs"), path = require("path");
 const R = (f) => fs.readFileSync(path.join(__dirname, "..", f), "utf8");
 globalThis.EndlessRules = require("../shared/endless-rules.js");
-Object.assign(globalThis, require("../src/avatars.js"));
-eval(R("src/levels.js") + R("src/engine.js") + R("src/bosses.js") + ";globalThis.API={createGame,updateGame,getLevel,TOTAL_LEVELS,WORLDS};globalThis.__spawn=spawnEnemy;globalThis.__damage=damageEnemy;");
+Object.assign(globalThis, require("../src/avatars.js"), require("../src/enemies2.js"));
+eval(R("src/levels.js") + R("src/engine.js") + R("src/bosses.js") + ";globalThis.API={createGame,updateGame,getLevel,TOTAL_LEVELS,WORLDS};globalThis.__spawn=spawnEnemy;globalThis.__damage=damageEnemy;globalThis.__hurt=hurtPlayer;");
 const { createGame, updateGame } = API;
 
 function bot(g, inp, god) {
@@ -42,6 +42,8 @@ function endless(seed, god, maxT = 900) {
     if (g.events.some((e) => e.type === "endlessOver")) break;
     g.events.length = 0;
   }
+  // if the bot outlived the cap, end the run legitimately: three hits spaced beyond the invulnerability window
+  if (!g.rec.end && !god) for (let k = 0; k < 4 && !g.player.dead; k++) { for (let i = 0; i < 66; i++) updateGame(g, 1 / 60, { autofire: true }); g.player.inv = 0; g.player.shield = 0; globalThis.__hurt(g); }
   return g;
 }
 module.exports = { campaign, endless, API };

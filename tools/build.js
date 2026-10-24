@@ -2,19 +2,20 @@
 const fs = require("fs"), path = require("path");
 const root = path.join(__dirname, ".."), rd = (f) => fs.readFileSync(path.join(root, f), "utf8");
 const test = process.argv.includes("--test");
-const order = ["src/sprites.js", "shared/endless-rules.js", "src/avatars.js", "src/levels.js", "src/engine.js", "src/bosses.js", "src/render_base.js", "src/render_fx.js", "src/audio.js", "src/net.js", "src/app.js"];
+const order = ["src/sprites.js", "shared/endless-rules.js", "src/avatars.js", "src/enemies2.js", "src/levels.js", "src/engine.js", "src/bosses.js", "src/render_base.js", "src/render_fx.js", "src/audio.js", "src/net.js", "src/app.js"];
 const js = order.map((f) => `/* ${f} */\n` + rd(f)).join("\n");
 const libs = test
   ? ["node_modules/.vendor/react.production.min.js", "node_modules/.vendor/react-dom.production.min.js", "tests/fake-backend.js"].map((f) => `<script>${rd(f)}</script>`).join("\n")
   : ['<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>',
      '<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>',
      '<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>'].join("\n");
-const fonts = test ? "" : '<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=Nunito:wght@600;700;800&display=swap" rel="stylesheet">';
+const fonts = test ? "" : '<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Exo+2:ital,wght@0,600;0,700;0,800;1,800&family=Baloo+2:wght@600;700;800&family=Nunito:wght@600;700;800&display=swap" rel="stylesheet">';
 const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0d0719">
 <title>Nova Vanguard — 100 levels. 20 heroes. One endless challenge.</title>
 <meta name="description" content="Nova Vanguard: a 100-level side-scrolling space shooter with 20 heroes, 100 bosses and ranked daily and weekly endless leaderboards.">

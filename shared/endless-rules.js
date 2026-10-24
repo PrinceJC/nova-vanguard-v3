@@ -6,32 +6,29 @@
   if (typeof module === "object" && module.exports) module.exports = m; else root.EndlessRules = m;
 })(typeof self !== "undefined" ? self : this, function () {
   "use strict";
-  const VERSION = 3;
-  const PLAYER_HP = 5, INV_MIN = 0.9, BLAST_CD = 14, FIRE_INT = 0.15, BLAST_DMG = 10;
+  const VERSION = 4;
+  const PLAYER_HP = 3, INV_MIN = 0.9, BLAST_CD = 14, FIRE_INT = 0.15, BLAST_DMG = 10;
   const HEAL_CAP = 2, HEAL_WINDOW = 300, PICKUP_LIFE = 30, ENTRY_MIN = 0.15, MAX_LIFE = 45;
   const TIER_SHOTS = [0, 1, 3, 6], TIER_DPS = TIER_SHOTS.map((n) => n / FIRE_INT), MAX_TIER_BONUS = 1000;
   const UPGRADES = []; // weapon upgrades come only from defeated elites
   const PICK_POINTS = { score: 250, big: 1000, hp: 50, shield: 0, up: 0 };
   const ELITE_BONUS = 500, ELITE_HP = 2.5, ELITE_SCORE = 3;
 
-  // type: [hp, shield, score, kind]  kind: n normal, s special edge/turret, c column-style
+  // type: [hp, shield, score, kind]  kind: n standard · a armored · f fast · s edge/turret
+  // Armored tiers need exactly 5 / 10 / 15 / 20 bullet hits (no health scaling in Endless).
   const STATS = {
-    scout_drone: [2, 0, 100, "n"], wing_bot: [2, 0, 100, "n"], crystal_bat: [2, 0, 120, "n"], sand_skimmer: [2, 0, 120, "n"],
-    aqua_drone: [2, 0, 120, "n"], frost_drone: [3, 0, 150, "n"], spore_floater: [3, 0, 150, "n"], shield_pod: [3, 6, 200, "n"],
-    spark_bird: [2, 0, 120, "n"], shard_spinner: [4, 0, 200, "c"], thorn_wasp: [2, 0, 150, "c"], electric_jelly: [4, 0, 200, "n"],
-    orbit_drone: [3, 0, 150, "n"], gem_crawler: [3, 0, 150, "s"], storm_drone: [4, 0, 200, "n"], void_scout: [3, 0, 150, "n"],
-    drill_drone: [3, 0, 150, "c"], torpedo_bot: [3, 0, 150, "c"], vine_sentry: [5, 0, 200, "s"], rift_jumper: [3, 0, 200, "c"],
-    glacier_guard: [6, 8, 300, "n"], furnace_bot: [6, 0, 250, "c"], eclipse_knight: [6, 8, 300, "n"], lightning_sentry: [5, 0, 200, "s"],
-    ancient_guardian: [8, 0, 300, "n"], ice_wisp: [1, 0, 100, "n"],
+    mite: [1, 0, 80, "n"], scout_drone: [2, 0, 100, "n"], wing_bot: [2, 0, 100, "n"], crystal_bat: [2, 0, 120, "n"],
+    aqua_drone: [2, 0, 120, "n"], spark_bird: [2, 0, 120, "n"], sand_skimmer: [2, 0, 120, "n"], ice_wisp: [1, 0, 100, "n"],
+    bulwark1: [5, 0, 300, "a"], bulwark2: [10, 0, 600, "a"], bulwark3: [15, 0, 950, "a"], bulwark4: [20, 0, 1400, "a"],
+    dart: [2, 0, 220, "f"],
   };
+  // [type, first appears (s), weight] — tougher types arrive gradually
   const POOL = [
-    ["scout_drone", 0, 3], ["wing_bot", 0, 3], ["crystal_bat", 20, 2], ["sand_skimmer", 45, 2], ["aqua_drone", 60, 2], ["frost_drone", 75, 2],
-    ["spore_floater", 90, 2], ["shield_pod", 110, 1.5], ["spark_bird", 130, 2], ["shard_spinner", 150, 1.5], ["thorn_wasp", 170, 1.5],
-    ["electric_jelly", 190, 1.5], ["orbit_drone", 210, 1.5], ["gem_crawler", 230, 1], ["ice_wisp", 240, 1.2], ["storm_drone", 250, 1.5],
-    ["void_scout", 280, 1.5], ["drill_drone", 300, 1.2], ["torpedo_bot", 320, 1.2], ["vine_sentry", 340, 1], ["rift_jumper", 360, 1],
-    ["glacier_guard", 390, 0.8], ["furnace_bot", 420, 0.8], ["eclipse_knight", 450, 0.8], ["lightning_sentry", 480, 0.8], ["ancient_guardian", 510, 0.6],
+    ["mite", 0, 3], ["scout_drone", 0, 2.5], ["wing_bot", 8, 2], ["crystal_bat", 25, 1.6], ["aqua_drone", 45, 1.4], ["sand_skimmer", 70, 1.3],
+    ["spark_bird", 90, 1.3], ["ice_wisp", 120, 1],
+    ["bulwark1", 35, 1.3], ["dart", 55, 1.4], ["bulwark2", 100, 1.1], ["bulwark3", 180, 0.9], ["bulwark4", 270, 0.7],
   ];
-
+  const POWERUPS = ["comet", "nova", "prism"];
   function rng(seed) {
     let a = seed >>> 0;
     return function () {
@@ -68,20 +65,20 @@
           for (let i = 0; i < n; i++) made.push({ t: base + i * 1.3, type, y: i % 2 === 0 ? "bottom" : "top" });
           continue;
         }
-        let n = st[0] >= 5 ? 1 + (d > 5 && r() < 0.4 ? 1 : 0) : 2 + Math.floor(Math.min(d, 6) * 0.5) + Math.floor(r() * 2);
-        const pat = st[3] === "c" ? "column" : ["line", "column", "v"][Math.floor(r() * 3)];
+        let n = st[3] === "a" ? 1 + (st[0] <= 10 && d > 4 && r() < 0.35 ? 1 : 0) : st[3] === "f" ? 1 + (d > 3 && r() < 0.5 ? 1 : 0) : 2 + Math.floor(Math.min(d, 6) * 0.5) + Math.floor(r() * 2);
+        const pat = st[3] === "a" || st[3] === "f" ? "column" : ["line", "column", "v"][Math.floor(r() * 3)];
         if (pat === "line") { const y = 0.15 + r() * 0.7; for (let i = 0; i < n; i++) made.push({ t: base + i * 0.55, type, y }); }
         else if (pat === "v") { const cy = 0.3 + r() * 0.4, half = (n - 1) / 2; for (let i = 0; i < n; i++) made.push({ t: base + Math.abs(i - half) * 0.35, type, y: cy + (i - half) * 0.09 }); }
         else {
           const span = Math.min(0.17 * (n - 1), 0.7), cy = 0.15 + span / 2 + r() * (0.7 - span);
-          for (let i = 0; i < n; i++) made.push({ t: base + (st[3] === "c" ? i * 0.45 : 0), type, y: n === 1 ? 0.17 + r() * 0.66 : cy - span / 2 + (span / (n - 1)) * i });
+          for (let i = 0; i < n; i++) made.push({ t: base + (st[3] === "f" ? i * 0.9 : 0), type, y: n === 1 ? 0.17 + r() * 0.66 : cy - span / 2 + (span / (n - 1)) * i });
         }
       }
       if (t >= 20 && r() < Math.min(0.3, 0.1 + d * 0.025)) {
-        const cand = made.filter((m) => typeof m.y === "number");
+        const cand = made.filter((m) => typeof m.y === "number" && STATS[m.type][3] === "n");
         if (cand.length) cand[Math.floor(r() * cand.length)].elite = true;
       }
-      const hpScale = 1 + Math.min(t / 600, 1) * 0.5;
+      const hpScale = 1;
       for (const m of made) {
         const st = STATS[m.type];
         m.id = ++id; m.t = r3(m.t);
@@ -116,6 +113,7 @@
       return "score";
     }
     if (x < 0.11) return "shield";
+    if (x < 0.15) return POWERUPS[Math.floor(hash01(seed ^ 0x5bd1e995, spawn.id) * POWERUPS.length) % POWERUPS.length];
     if (x < 0.29) return "score";
     return null;
   }
@@ -206,6 +204,6 @@
     return { ok: true, score: Math.round(score), kills: kills.length, elites, survival: end };
   }
 
-  return { VERSION, STATS, POOL, UPGRADES, TIER_SHOTS, spawnGap, speedAt, threatLevel, STEP_SECONDS, FIRE_INT, MAX_TIER_BONUS, PLAYER_HP, BLAST_CD, BLAST_DMG, HEAL_CAP, HEAL_WINDOW, PICKUP_LIFE, PICK_POINTS,
+  return { VERSION, STATS, POOL, POWERUPS, UPGRADES, TIER_SHOTS, spawnGap, speedAt, threatLevel, STEP_SECONDS, FIRE_INT, MAX_TIER_BONUS, PLAYER_HP, BLAST_CD, BLAST_DMG, HEAL_CAP, HEAL_WINDOW, PICKUP_LIFE, PICK_POINTS,
     rng, hash01, createSchedule, newDropState, dropFor, milestonePoints, validate };
 });

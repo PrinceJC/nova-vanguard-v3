@@ -7,30 +7,35 @@ function loadSprites() {
   return Promise.all(names.map((n) => new Promise((res) => {
     const svg = SPRITE_SVG[n];
     const m = svg.match(/viewBox="[^"]*?\s([\d.]+)\s([\d.]+)"/), vw = parseFloat(m[1]), vh = parseFloat(m[2]);
-    const k = Math.max(vw, vh) > 120 ? 2 : 4, pw = Math.round(vw * k), ph = Math.round(vh * k);
+    const big = Math.max(vw, vh), k = big > 120 ? 2.2 : big > 70 ? 4.5 : 6, pw = Math.round(vw * k), ph = Math.round(vh * k);
     const img = new Image();
     img.onload = () => {
       const c = document.createElement("canvas"); c.width = pw; c.height = ph;
       const cx = c.getContext("2d"); cx.drawImage(img, 0, 0, pw, ph);
-      if (typeof ENEMIES !== "undefined" && (ENEMIES[n] || n === "glacier_guard_broken")) { // metallic sheen pass
+      if (typeof ENEMIES !== "undefined" && (ENEMIES[n] || n === "glacier_guard_broken")) { // drop shadow + metallic sheen pass
+        const sh = document.createElement("canvas"); sh.width = pw; sh.height = ph; const sx = sh.getContext("2d");
+        sx.drawImage(img, 0, 0, pw, ph); sx.globalCompositeOperation = "source-in"; sx.fillStyle = "rgba(6,4,24,0.55)"; sx.fillRect(0, 0, pw, ph);
+        cx.save(); cx.globalCompositeOperation = "destination-over"; cx.drawImage(sh, pw * 0.03, ph * 0.05); cx.restore();
         cx.globalCompositeOperation = "source-atop";
         const gr = cx.createLinearGradient(0, 0, pw * 0.4, ph); gr.addColorStop(0, "rgba(255,255,255,0.32)"); gr.addColorStop(0.35, "rgba(255,255,255,0.04)"); gr.addColorStop(0.65, "rgba(10,8,40,0.05)"); gr.addColorStop(1, "rgba(10,8,40,0.38)");
         cx.fillStyle = gr; cx.fillRect(0, 0, pw, ph); cx.globalCompositeOperation = "source-over";
       }
-      const w = document.createElement("canvas"); w.width = pw; w.height = ph;
-      const wx = w.getContext("2d"); wx.drawImage(c, 0, 0); wx.globalCompositeOperation = "source-in"; wx.fillStyle = "#fff"; wx.fillRect(0, 0, pw, ph);
-      SPR[n] = { c, w, vb: vw, vw, vh }; res();
+      SPR[n] = { c, w: null, vb: vw, vw, vh }; res();
     };
     img.onerror = () => res();
     img.src = svgURI(svg);
   })));
+}
+function whiteOf(s) { // hit-flash silhouette, created the first time it is needed
+  if (!s.w) { const w = document.createElement("canvas"); w.width = s.c.width; w.height = s.c.height; const wx = w.getContext("2d"); wx.drawImage(s.c, 0, 0); wx.globalCompositeOperation = "source-in"; wx.fillStyle = "#fff"; wx.fillRect(0, 0, w.width, w.height); s.w = w; }
+  return s.w;
 }
 function drawSprWH(ctx, name, x, y, w, h, o = {}) {
   const s = SPR[name]; if (!s) return;
   ctx.save(); ctx.translate(x, y); if (o.rot) ctx.rotate(o.rot); if (o.skew) ctx.transform(1, o.skew, 0, 1, 0, 0);
   if (o.alpha !== undefined) ctx.globalAlpha = o.alpha;
   ctx.drawImage(s.c, -w / 2, -h / 2, w, h);
-  if (o.white) { ctx.globalAlpha = (o.alpha ?? 1) * o.white; ctx.drawImage(s.w, -w / 2, -h / 2, w, h); }
+  if (o.white) { ctx.globalAlpha = (o.alpha ?? 1) * o.white; ctx.drawImage(whiteOf(s), -w / 2, -h / 2, w, h); }
   ctx.restore();
 }
 function drawSpr(ctx, name, x, y, size, o = {}) {
@@ -40,16 +45,20 @@ function drawSpr(ctx, name, x, y, size, o = {}) {
   if (o.flipY) ctx.scale(1, -1);
   if (o.alpha !== undefined) ctx.globalAlpha = o.alpha;
   ctx.drawImage(s.c, -size / 2, -size / 2, size, size);
-  if (o.white) { ctx.globalAlpha = (o.alpha ?? 1) * o.white; ctx.drawImage(s.w, -size / 2, -size / 2, size, size); }
+  if (o.white) { ctx.globalAlpha = (o.alpha ?? 1) * o.white; ctx.drawImage(whiteOf(s), -size / 2, -size / 2, size, size); }
   ctx.restore();
 }
 
 // ============================================================ backgrounds
 const BG = {};
+// Backgrounds are pre-rendered at the device's real resolution (logical px × render scale), so they stay sharp on
+// high-density phones and tablets. Changing the scale (rotation, resize) simply rebuilds the cached layers.
+let RENDER_SCALE = 1;
+function setRenderScale(sc) { sc = Math.max(1, Math.min(2.5, Math.round(sc * 4) / 4)); if (sc !== RENDER_SCALE) { RENDER_SCALE = sc; for (const k of Object.keys(BG)) delete BG[k]; } return sc; }
 function srand(seed) { let s = seed; return () => ((s = (s * 16807) % 2147483647) / 2147483647); }
 function mkLayer(draw, seed) {
-  const c = document.createElement("canvas"); c.width = W; c.height = H;
-  const x = c.getContext("2d"); const r = srand(seed);
+  const c = document.createElement("canvas"); c.width = Math.round(W * RENDER_SCALE); c.height = Math.round(H * RENDER_SCALE);
+  const x = c.getContext("2d"); x.scale(c.width / W, c.height / H); x.imageSmoothingQuality = "high"; const r = srand(seed);
   const wrap = (fn) => { fn(0); fn(-W); fn(W); };
   draw(x, r, wrap); return c;
 }
@@ -60,7 +69,7 @@ function buildBG(L) {
   const sky = mkLayer((x, r) => { // deep blue-violet space tinted by the world
     const gr = x.createLinearGradient(0, 0, W * 0.3, H); gr.addColorStop(0, mixHex("#101a6a", P.top, 0.35)); gr.addColorStop(0.55, mixHex("#1d1a86", P.bot, 0.3)); gr.addColorStop(1, mixHex("#2a1670", P.bot, 0.4));
     x.fillStyle = gr; x.fillRect(0, 0, W, H);
-    for (let i = 0; i < 160; i++) { x.globalAlpha = r() * 0.6 + 0.2; x.fillStyle = r() < 0.15 ? P.star : "#ffffff"; const s = r() * 1.6 + 0.4; x.fillRect(r() * W, r() * H, s, s); }
+    for (let i = 0; i < 170; i++) { x.globalAlpha = r() * 0.6 + 0.25; x.fillStyle = r() < 0.15 ? P.star : "#ffffff"; const s = r() * 0.9 + 0.35; x.beginPath(); x.arc(r() * W, r() * H, s, 0, TAU); x.fill(); }
     x.globalAlpha = 1;
   }, L * 7);
   const nebula = mkLayer((x, r, wrap) => {
@@ -87,9 +96,25 @@ function buildBG(L) {
   const streaks = mkLayer((x, r) => { // subtle light streaks
     for (let i = 0; i < 14; i++) { const sx = r() * W, sy = r() * H, len = 60 + r() * 160; const g = x.createLinearGradient(sx, sy, sx + len, sy - len * 0.08); g.addColorStop(0, "rgba(160,200,255,0)"); g.addColorStop(0.7, "rgba(160,200,255,0.35)"); g.addColorStop(1, "rgba(255,255,255,0)"); x.strokeStyle = g; x.lineWidth = 1.5; x.beginPath(); x.moveTo(sx, sy); x.lineTo(sx + len, sy - len * 0.08); x.stroke(); }
   }, L * 17);
-  return (BG[L] = { sky, nebula, far, streaks, mid: far, near: streaks });
+  const scenery = mkLayer((x, r, wrap) => {
+    const px = W * (0.25 + r() * 0.5), py = H * (0.18 + r() * 0.3), pr = 46 + r() * 40;
+    const pg = x.createRadialGradient(px - pr * 0.35, py - pr * 0.35, pr * 0.1, px, py, pr);
+    pg.addColorStop(0, mixHex(P.acc, "#ffffff", 0.35)); pg.addColorStop(0.55, mixHex(P.mid, P.acc, 0.35)); pg.addColorStop(1, mixHex(P.far, "#05040f", 0.5));
+    x.globalAlpha = 0.85; x.fillStyle = pg; x.beginPath(); x.arc(px, py, pr, 0, TAU); x.fill();
+    x.strokeStyle = mixHex(P.acc, "#ffffff", 0.5); x.globalAlpha = 0.35; x.lineWidth = 2; x.beginPath(); x.arc(px, py, pr, -2.6, -0.6); x.stroke();
+    if (r() < 0.6) { x.globalAlpha = 0.45; x.strokeStyle = P.star; x.lineWidth = 3; x.beginPath(); x.ellipse(px, py, pr * 1.7, pr * 0.35, -0.25, 0, TAU); x.stroke(); }
+    x.globalAlpha = 1;
+    for (let i = 0; i < 9; i++) {
+      const ax = r() * W, ay = 30 + r() * (H - 60), ar = 6 + r() * 16, rot = r() * TAU;
+      wrap((o) => { x.save(); x.translate(ax + o, ay); x.rotate(rot);
+        const ag = x.createLinearGradient(-ar, -ar, ar, ar); ag.addColorStop(0, mixHex(P.mid, "#ffffff", 0.25)); ag.addColorStop(1, mixHex(P.far, "#000000", 0.4));
+        x.globalAlpha = 0.7; x.fillStyle = ag; x.beginPath(); for (let k = 0; k < 7; k++) { const a = (TAU / 7) * k, rr = ar * (k % 2 ? 0.75 : 1); x.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); } x.closePath(); x.fill();
+        x.strokeStyle = mixHex(P.acc, "#ffffff", 0.4); x.globalAlpha = 0.35; x.lineWidth = 1.2; x.beginPath(); x.moveTo(-ar * 0.6, -ar * 0.5); x.lineTo(ar * 0.3, -ar * 0.8); x.stroke(); x.restore(); });
+    }
+  }, L * 19);
+  return (BG[L] = { sky, nebula, far, scenery, streaks, mid: far, near: streaks });
 }
-function drawLayer(ctx, c, off) { const o = -(((off % W) + W) % W); ctx.drawImage(c, o, 0); ctx.drawImage(c, o + W, 0); }
+function drawLayer(ctx, c, off) { const o = -(((off % W) + W) % W); ctx.drawImage(c, o, 0, W, H); ctx.drawImage(c, o + W, 0, W, H); }
 
 function drawSerpent(ctx, b, white, now) {
   for (let i = b.segs.length - 1; i >= 0; i--) {
@@ -183,7 +208,7 @@ function heart(ctx, x, y, s, fill) {
 }
 
 
-const FONT = "'Baloo 2', 'Trebuchet MS', sans-serif";
+const FONT = "'Exo 2', 'Baloo 2', 'Trebuchet MS', sans-serif";
 
 function txt(ctx, s, x, y, size, color, align = "left", weight = 700) {
   ctx.font = `${weight} ${size}px ${FONT}`; ctx.textAlign = align; ctx.textBaseline = "alphabetic";

@@ -10,6 +10,17 @@ const lsGet = (k) => { try { return localStorage.getItem(k); } catch (e) { retur
 const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
 const lsDel = (k) => { try { localStorage.removeItem(k); } catch (e) {} };
 
+// ============================================================ orientation + device helpers
+// Ask for landscape when a game starts (needs a user tap). Android/Chrome and installed apps support fullscreen +
+// orientation lock; iOS Safari does not, so the rotate prompt covers that case.
+function requestLandscape() {
+  if (!IS_TOUCH) return;
+  const el = document.documentElement;
+  const lock = () => { try { const p = screen.orientation && screen.orientation.lock && screen.orientation.lock("landscape"); if (p && p.catch) p.catch(() => {}); } catch (e) {} };
+  try { if (!document.fullscreenElement && el.requestFullscreen) { const p = el.requestFullscreen({ navigationUI: "hide" }); if (p && p.then) p.then(lock, lock); else lock(); } else lock(); } catch (e) { lock(); }
+}
+const isPortrait = () => IS_TOUCH && window.innerHeight > window.innerWidth * 1.05;
+
 // ============================================================ small components
 function Btn({ children, onClick, main, disabled, small, label, auto, type }) {
   const ref = useRef(null);
@@ -61,7 +72,7 @@ function TouchControls({ input, game }) {
   useEffect(() => { const t = setInterval(() => { const g = game.current; setCd(g ? Math.max(0, g.player.specialCd) : 0); }, 200); return () => clearInterval(t); }, []);
   const start = (e) => {
     const t = e.changedTouches[0]; id.current = t.identifier;
-    const r = e.currentTarget.getBoundingClientRect(), sc = r.width / 420;
+    const r = e.currentTarget.getBoundingClientRect(), sc = r.width / 470;
     origin.current = { x: t.clientX, y: t.clientY, sc };
     if (base.current) { base.current.style.left = (t.clientX - r.left) / sc - 60 + "px"; base.current.style.top = (t.clientY - r.top) / sc - 60 + "px"; base.current.style.opacity = 1; }
     e.preventDefault();
@@ -69,8 +80,13 @@ function TouchControls({ input, game }) {
   const move = (e) => {
     for (const t of e.changedTouches) if (t.identifier === id.current) {
       const o = origin.current, max = 50; let dx = (t.clientX - o.x) / o.sc, dy = (t.clientY - o.y) / o.sc; const l = Math.hypot(dx, dy);
-      if (l > max) { dx = (dx / l) * max; dy = (dy / l) * max; }
-      input.current.joyX = Math.abs(dx) < 6 ? 0 : dx / max; input.current.joyY = Math.abs(dy) < 6 ? 0 : dy / max;
+      if (l > max * 1.35) { // floating stick: the base follows a thumb that slides far, so direction changes stay instant
+        const k = (l - max) / l; o.x += (t.clientX - o.x) * k; o.y += (t.clientY - o.y) * k;
+        if (base.current) { base.current.style.left = parseFloat(base.current.style.left) + dx * k + "px"; base.current.style.top = parseFloat(base.current.style.top) + dy * k + "px"; }
+        dx *= 1 - k; dy *= 1 - k;
+      }
+      if (Math.hypot(dx, dy) > max) { const m = Math.hypot(dx, dy); dx = (dx / m) * max; dy = (dy / m) * max; }
+      const mag = Math.hypot(dx, dy); input.current.joyX = mag < 5 ? 0 : dx / max; input.current.joyY = mag < 5 ? 0 : dy / max;
       if (knob.current) knob.current.style.transform = `translate(${dx}px, ${dy}px)`;
     }
     e.preventDefault();
@@ -210,6 +226,8 @@ function App() {
   const [confirm, setConfirm] = useState(null);
   const [focusAv, setFocusAv] = useState(null);
   const [stage, setStage] = useState({ w: 960, h: 540, s: 1 });
+  const [portrait, setPortrait] = useState(isPortrait());
+  const perf = useRef({ cap: 2, dprCap: 2, frames: 0, acc: 0 }); const [perfTick, setPerfTick] = useState(0);
   const canvas = useRef(null), game = useRef(null), input = useRef({}), screenRef = useRef(screen), saveRef = useRef(save), attract = useRef(null), runRef = useRef(null), dirty = useRef(false), saveTimer = useRef(null);
   screenRef.current = screen; saveRef.current = save;
   if (typeof window !== "undefined") window.__lumi = { game: () => game.current, screen: () => screenRef.current, save: () => saveRef.current };
@@ -263,8 +281,8 @@ function App() {
 
   // ---------- boot
   useEffect(() => {
-    const fonts = document.fonts && document.fonts.load ? Promise.race([Promise.all([document.fonts.load("800 40px 'Baloo 2'"), document.fonts.load("600 16px 'Nunito'")]), new Promise((r) => setTimeout(r, 2500))]) : Promise.resolve();
-    registerAvatarSprites();
+    const fonts = document.fonts && document.fonts.load ? Promise.race([Promise.all([document.fonts.load("800 40px 'Exo 2'"), document.fonts.load("600 16px 'Nunito'")]), new Promise((r) => setTimeout(r, 2500))]) : Promise.resolve();
+    registerAvatarSprites(); registerEnemySprites();
     Promise.all([loadSprites(), fonts, Net.init()]).then(([, , ok]) => {
       for (let i = 1; i <= 10; i++) buildBG(i);
       attract.current = { scroll: 0 };
@@ -275,18 +293,32 @@ function App() {
   }, []);
 
   // ---------- stage scaling
+  // Resize on rotation/resizing: the 16:9 playfield is letter-boxed (never stretched) and the running game keeps going.
   useEffect(() => {
-    const fit = () => { const r = document.getElementById("root").getBoundingClientRect(), s = Math.min((r.width || innerWidth) / W, (r.height || innerHeight) / H); setStage({ w: Math.floor(W * s), h: Math.floor(H * s), s }); };
-    fit(); addEventListener("resize", fit); addEventListener("orientationchange", fit);
-    return () => { removeEventListener("resize", fit); removeEventListener("orientationchange", fit); };
+    const fit = () => { const r = document.getElementById("root").getBoundingClientRect(), s = Math.min((r.width || innerWidth) / W, (r.height || innerHeight) / H); setStage({ w: Math.floor(W * s), h: Math.floor(H * s), s }); setPortrait(isPortrait()); };
+    const late = () => { fit(); setTimeout(fit, 250); setTimeout(fit, 600); };   // iOS reports the new size a moment after rotating
+    fit(); addEventListener("resize", fit); addEventListener("orientationchange", late); document.addEventListener("fullscreenchange", late);
+    if (window.visualViewport) visualViewport.addEventListener("resize", fit);
+    return () => { removeEventListener("resize", fit); removeEventListener("orientationchange", late); document.removeEventListener("fullscreenchange", late); if (window.visualViewport) visualViewport.removeEventListener("resize", fit); };
   }, []);
-  useEffect(() => { const c = canvas.current; if (!c) return; const dpr = Math.min(devicePixelRatio || 1, set.quality === 0 ? 1 : 2); c.width = Math.round(stage.w * dpr); c.height = Math.round(stage.h * dpr); }, [stage, set.quality]);
+  // Canvas resolution follows the device pixel density (capped for smooth frame rates), so art stays crisp.
+  useEffect(() => { const c = canvas.current; if (!c) return;
+    const budget = Math.sqrt(2.8e6 / Math.max(1, stage.w * stage.h));   // cap total canvas pixels (~2.8 MP) so big tablets stay smooth
+    const dpr = Math.max(1, Math.min(devicePixelRatio || 1, set.quality === 0 ? 1.5 : perf.current.dprCap, budget)); c.width = Math.round(stage.w * dpr); c.height = Math.round(stage.h * dpr); setRenderScale(stage.s * dpr); }, [stage, set.quality, perfTick]);
+  useEffect(() => { if (portrait && screenRef.current === "playing") pause(); }, [portrait]);
+  useEffect(() => { // no accidental pinch / double-tap zoom or page bounce while the game screen is shown (landing page stays normal)
+    const stop = (e) => { if (screenRef.current !== "landing") e.preventDefault(); };
+    document.addEventListener("gesturestart", stop); document.addEventListener("dblclick", stop);
+    return () => { document.removeEventListener("gesturestart", stop); document.removeEventListener("dblclick", stop); };
+  }, []);
 
   // ---------- campaign flow
   const camp = save.campaign, cc = completedCount(save);
+  // Every Campaign level starts with the default single-shot weapon. Weapon power-ups last for that level only:
+  // advancing, replaying, retrying after game over and starting a new run all reset to one bullet per attack.
   const startLevel = useCallback((L) => {
-    const run = saveRef.current.campaign.run || { level: L, tier: 1, score: 0 };
-    game.current = createGame({ mode: "campaign", level: L, tier: run.tier, avatar: saveRef.current.avatars.selected, quality: saveRef.current.settings.quality });
+    requestLandscape();
+    game.current = createGame({ mode: "campaign", level: L, tier: 1, avatar: saveRef.current.avatars.selected, quality: saveRef.current.settings.quality });
     input.current = {}; setScreen("playing");
     Sound.init(); Sound.duck(false); Sound.music(game.current.lv.music, false);
   }, []);
@@ -296,7 +328,7 @@ function App() {
   // starting a new run, or restarting after game over always begins with the default single shot.
   const playLevel = (L) => {
     const cur = saveRef.current.campaign.run;
-    const run = cur && cur.level === L ? cur : { level: L, tier: 1, score: 0 };
+    const run = cur && cur.level === L ? { ...cur, tier: 1 } : { level: L, tier: 1, score: 0 };
     commit((s) => { s.campaign.run = run; }); startLevel(L);
   };
   const retry = () => {
@@ -318,7 +350,7 @@ function App() {
     const res = { L, title: g.L.title, boss: g.boss.def.name, score: g.score, clear, health, flawless, levelTotal, runTotal, tier: g.player.tier, final: L === TOTAL_LEVELS, newBest: runTotal > saveRef.current.campaign.bestTotal };
     commit((s) => {
       const c = s.campaign; c.best[L - 1] = Math.max(c.best[L - 1], levelTotal); c.completed[L - 1] = true;
-      if (L < TOTAL_LEVELS) { c.unlocked = Math.max(c.unlocked, L + 1); c.levelTier[L] = Math.max(c.levelTier[L], g.player.tier); c.run = { level: L + 1, tier: g.player.tier, score: runTotal }; }
+      if (L < TOTAL_LEVELS) { c.unlocked = Math.max(c.unlocked, L + 1); c.run = { level: L + 1, tier: 1, score: runTotal }; }
       else { c.run = null; c.lastTotal = runTotal; c.bestTotal = Math.max(c.bestTotal, runTotal); }
     }, true);
     const after = completedCount(saveRef.current);
@@ -329,6 +361,7 @@ function App() {
 
   // ---------- endless flow (ranked)
   const startEndless = useCallback(async () => {
+    requestLandscape();
     setScreen("endless-start"); setEres(null); Sound.init();
     let seed, ranked = true, why = "";
     try { const r = await Net.startRun(); runRef.current = r.runId; seed = r.seed; }
@@ -384,8 +417,12 @@ function App() {
     let raf, last = performance.now();
     const loop = (now) => {
       raf = requestAnimationFrame(loop);
-      const dt = Math.min(0.05, (now - last) / 1000); last = now;
+      const rawDt = (now - last) / 1000, dt = Math.min(0.05, rawDt); last = now;
       const c = canvas.current; if (!c) return;
+      // automatic performance fallback: if frames run slow during play, trim effects first, then canvas resolution
+      const P = perf.current;
+      if (screenRef.current === "playing" && rawDt < 0.25) { P.frames++; P.acc += rawDt; if (P.frames >= 150) { const avg = P.acc / P.frames; P.frames = 0; P.acc = 0;
+        if (avg > 1 / 48) { if (P.cap > 0) P.cap--; else if (P.dprCap > 1.25) { P.dprCap -= 0.25; setPerfTick((x) => x + 1); } } } }
       const ctx = c.getContext("2d"), sc = c.width / W; ctx.setTransform(sc, 0, 0, sc, 0, 0);
       const scr = screenRef.current, g = game.current, S = saveRef.current.settings;
       if (g) {
@@ -404,7 +441,7 @@ function App() {
           }
           g.events.length = 0;
         }
-        drawGame(ctx, g, { ...S, touch: IS_TOUCH }, now);
+        drawGame(ctx, g, { ...S, touch: IS_TOUCH, perfCap: P.cap }, now);
         if (g.mode === "endless" && !g.ranked && scr === "playing") txt(ctx, "Practice run (not ranked)", W / 2, H - 14, 15, "#c9bde8", "center");
       } else if (attract.current) {
         const a = attract.current; a.scroll += dt * 50; const bg = buildBG(((Math.floor(now / 12000)) % 10) + 1);
@@ -435,7 +472,7 @@ function App() {
       h("button", { className: "linkbtn", onClick: () => { setAuthMode("recover"); setScreen("auth"); } }, "Can’t sign in? Recover your account"),
       h("p", { className: "note small" }, "An account keeps your progress in the cloud and puts your scores on the leaderboards.")));
 
-  useEffect(() => { document.body.classList.toggle("doc", screen === "landing"); if (screen === "landing") window.scrollTo(0, 0); }, [screen]);
+  useEffect(() => { document.body.classList.toggle("doc", screen === "landing"); document.body.classList.toggle("game", screen !== "landing"); if (screen === "landing") window.scrollTo(0, 0); }, [screen]);
   if (screen === "landing") return h(Landing, { signedIn: !!Net.user, onPlay: () => { if (Net.user) loadAccount(); else { setAuthMode("signin"); setScreen("auth"); } }, onCreate: () => { setAuthMode("signup"); setScreen("auth"); } });
   if (screen === "auth") overlay = h(AuthFlow, { key: authMode, mode: authMode === "claim" ? "signup" : authMode, startStep: authMode === "claim" ? "claim" : undefined, onBack: () => setScreen("landing"), onDone: loadAccount });
 
@@ -513,7 +550,7 @@ function App() {
     h(Btn, { onClick: toMenu }, "Main menu")));
   if (screen === "endless-start") overlay = h("div", { className: "center dim" }, h("p", { className: "loading" }, "Starting a ranked run…"));
   if (screen === "gameover") overlay = h("div", { className: "center dim" }, h("div", { className: "panel menu narrow" }, h("h2", null, `${AVATAR_BY_ID[save.avatars.selected].name} is down`),
-    h("p", { className: "note" }, "Retry restarts this level with full health, a fresh single-shot weapon, and its score reset."),
+    h("p", { className: "note" }, "Retry restarts this level with three lives, the default single-shot weapon, and its score reset."),
     h(Btn, { main: true, auto: true, onClick: retry }, "Retry level"), h(Btn, { onClick: toMenu }, "Main menu")));
 
   if (screen === "complete" && result) overlay = h("div", { className: "center dim" }, h("div", { className: "panel result" },
@@ -556,9 +593,14 @@ function App() {
       h("div", { className: "row" }, h(Btn, { main: true, auto: true, onClick: startEndless }, "Play again"), st === "neterror" && h(Btn, { onClick: resubmit }, "Retry submission"), h(Btn, { onClick: () => { game.current = null; setScreen("rankings"); } }, "Rankings"), h(Btn, { onClick: toMenu }, "Main menu"))));
   }
 
-  return h("div", { className: "stage", style: { width: stage.w, height: stage.h } },
-    h("canvas", { ref: canvas, style: { width: stage.w, height: stage.h }, "aria-label": "Game playfield" }),
-    h("div", { className: "ui" + (set.reduced ? " rm" : ""), style: { transform: `scale(${stage.s})` } }, overlay));
+  return h(React.Fragment, null,
+    h("div", { className: "stage", style: { width: stage.w, height: stage.h } },
+      h("canvas", { ref: canvas, style: { width: stage.w, height: stage.h }, "aria-label": "Game playfield" }),
+      h("div", { className: "ui" + (set.reduced ? " rm" : ""), style: { transform: `scale(${stage.s})` } }, overlay)),
+    portrait && h("div", { className: "rotatemsg", role: "alertdialog", "aria-live": "assertive", "aria-label": "Rotate your device to landscape" },
+      h("div", { className: "phoneicon", "aria-hidden": true }, h("span")),
+      h("h2", null, "Rotate your device to landscape"),
+      h("p", null, screen === "paused" || screen === "playing" ? "The game is paused and will be right where you left it." : "Nova Vanguard plays sideways for a wider view.")));
 }
 
 // ============================================================ landing page
@@ -613,8 +655,8 @@ function Landing({ signedIn, onPlay, onCreate }) {
       h("button", { className: "lbtn primary small", onClick: onPlay }, signedIn ? "Continue Playing" : "Play Now")),
     h("header", { id: "top", className: "lhero" }, h(SpaceCanvas, { className: "herobg" }),
       h("div", { className: "herocopy" }, h("h1", null, "Nova Vanguard"), h("p", { className: "tagline" }, "100 levels. 20 heroes. One endless challenge."),
-        h("p", { className: "lead" }, "A fantasy space shooter. Pick a cannon, bow, sniper rifle or gun, power up from one shot to six, and break through 100 bosses or chase the daily leaderboard."), cta(true)),
-      h("div", { className: "heroart" }, h("img", { className: "mainhero", src: avatarFull("lumi"), alt: "Nova, the celestial vanguard, firing her starforged cannon" }),
+        h("p", { className: "lead" }, "A fantasy space shooter. Pick a cannon, bow, sniper rifle or gun, power up from one shot to six, grab timed bullet power-ups, and break through 100 bosses or chase the daily leaderboard."), cta(true)),
+      h("div", { className: "heroart" }, h("img", { className: "mainhero", src: avatarFull("lumi"), alt: "Astra, the sunrise vanguard, riding her glider with the Dawnfire cannon" }),
         h("div", { className: "squad" }, featured.map((id) => h("figure", { key: id }, h("img", { src: avatarPortrait(id), alt: "", width: 64, height: 64 }), h("figcaption", null, AVATAR_BY_ID[id].name)))))),
     h("section", { id: "gameplay", className: "lsec" }, h("h2", null, "See it in motion"), h("p", { className: "muted" }, "This is the game itself running live in your browser: real enemies, real bullets, and the special blast."), h("div", { className: "demowrap" }, h(DemoCanvas))),
     h("section", { id: "campaign", className: "lsec" }, h("h2", null, "The campaign"),
@@ -623,8 +665,8 @@ function Landing({ signedIn, onPlay, onCreate }) {
     h("section", { id: "heroes", className: "lsec" }, h("h2", null, "20 heroes"), h("p", { className: "muted" }, "Four are ready from the start. The rest unlock as you clear campaign levels. Every hero has the same hitbox, speed and damage, so picks are about style, not advantage."),
       h("div", { className: "herogrid" }, AVATARS.map((a) => h("figure", { key: a.id, className: "hcard" }, h("img", { src: avatarFull(a.id), alt: a.name, loading: "lazy" }), h("figcaption", null, h("b", null, a.name), h("span", null, a.title), h("small", { className: a.unlock ? "" : "starter" }, `${WEAPON_CATS[a.cat]} · ${a.unlock ? `Clear ${a.unlock} levels` : "Starter"}`)))))),
     h("section", { id: "endless", className: "lsec split" }, h("div", null, h("h2", null, "Endless mode"),
-      h("p", null, "Waves never stop. Defeat enemies, survive each minute for a growing bonus, and bring down gold-armored elites for weapon upgrades."),
-      h("ul", { className: "ticks" }, h("li", null, "Every ranked run starts the same: five hearts, one shot"), h("li", null, "Scores are rebuilt and verified by the server before they count"), h("li", null, "Daily and weekly boards reset at midnight and on Mondays, Manila time"))),
+      h("p", null, "Waves never stop and enemies never shoot, but contact hurts. Armored Bulwarks take 5 to 20 hits, Darts flash a warning before they rush, and every 20 seconds the swarm gets thicker and faster."),
+      h("ul", { className: "ticks" }, h("li", null, "Every ranked run starts the same: three lives, one shot"), h("li", null, "Scores are rebuilt and verified by the server before they count"), h("li", null, "Daily and weekly boards reset at midnight and on Mondays, Manila time"))),
       h("div", { id: "rankings", className: "boards" }, board.err && h("p", { className: "muted" }, board.err), h(Board, { title: "Today’s top pilots", rows: board.daily }), h(Board, { title: "This week", rows: board.weekly }))),
     h("section", { id: "how-to-play", className: "lsec" }, h("h2", null, "How to play"),
       h("div", { className: "howgrid" },
@@ -634,6 +676,7 @@ function Landing({ signedIn, onPlay, onCreate }) {
           h("li", null, h("i", { className: "ico star" }), h("span", null, h("b", null, "Weapon upgrade."), " Dropped by every elite. One shot → three → six. At max power each extra one is worth 1,000 points.")),
           h("li", null, h("i", { className: "ico plus" }), h("span", null, h("b", null, "Health."), " Restores one heart. At most two appear per level.")),
           h("li", null, h("i", { className: "ico hex" }), h("span", null, h("b", null, "Shield."), " Absorbs one hit for six seconds.")),
+          h("li", null, h("i", { className: "ico comet" }), h("span", null, h("b", null, "Bullet power-ups."), " Comet, Nova and Prism rounds change your shots and their speed for 10 seconds.")),
           h("li", null, h("i", { className: "ico wave" }), h("span", null, h("b", null, "Special blast."), " Charge, then release a wave that clears enemy bullets and damages everything it touches. Recharges in 14 seconds."))))),
       h("div", { className: "ctaband" }, h("h2", null, "Ready to fly?"), cta(true))),
     h("footer", { className: "lfoot" }, h("span", null, "© 2026 Nova Vanguard"), h("nav", null, h("a", { href: "support.html" }, "Account support"), h("a", { href: "privacy.html" }, "Privacy"), h("a", { href: "terms.html" }, "Terms"))));

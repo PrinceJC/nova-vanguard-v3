@@ -2,24 +2,27 @@
 // ============================================================ glow sprites (cheap additive halos instead of shadowBlur)
 const GLOW = {};
 function glow(color, r = 24) {
-  const k = color + r; if (GLOW[k]) return GLOW[k];
+  r = 48; const k = color; if (GLOW[k]) return GLOW[k];   // 96 px halo: smooth when scaled on high-density screens
   const c = document.createElement("canvas"); c.width = c.height = r * 2;
   const x = c.getContext("2d"), gr = x.createRadialGradient(r, r, 0, r, r, r);
   gr.addColorStop(0, color); gr.addColorStop(0.35, color + "88"); gr.addColorStop(1, color + "00");
   x.fillStyle = gr; x.fillRect(0, 0, r * 2, r * 2); return (GLOW[k] = c);
 }
-function drawGlow(ctx, color, x, y, r, a = 1) { ctx.globalAlpha = a; ctx.drawImage(glow(color, 32), x - r, y - r, r * 2, r * 2); ctx.globalAlpha = 1; }
+function drawGlow(ctx, color, x, y, r, a = 1) { ctx.globalAlpha = a; ctx.drawImage(glow(color), x - r, y - r, r * 2, r * 2); ctx.globalAlpha = 1; }
 const worldIndex = (lv) => Math.max(1, WORLDS.indexOf(lv.world) + 1);
 
 // ============================================================ frame
 function drawGame(ctx, g, set, now) {
-  const Q = set.quality ?? 2, rm = set.reduced, shakeAmt = rm ? 0 : (set.shake ?? 0.7);
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+  const Q = Math.min(set.quality ?? 2, set.perfCap ?? 2), rm = set.reduced, shakeAmt = rm ? 0 : (set.shake ?? 0.7);
   const bg = buildBG(worldIndex(g.lv));
+  g.quality = Q;
   ctx.save();
   if (g.shake > 0 && shakeAmt > 0) { const s = g.shake * 14 * shakeAmt; ctx.translate(rand(-s, s), rand(-s, s)); }
   ctx.drawImage(bg.sky, 0, 0);
   drawLayer(ctx, bg.nebula, g.scroll * 0.06);
   if (Q > 0) drawLayer(ctx, bg.far, g.scroll * 0.18);
+  if (Q > 0) drawLayer(ctx, bg.scenery, g.scroll * 0.32);
   drawLayer(ctx, bg.streaks, g.scroll * 1.6);
   if (Q > 1) drawMotes(ctx, g, now);
 
@@ -53,7 +56,7 @@ function drawPlayer(ctx, g, set, now, Q) {
     if (p.deadT > 1.3) return;
     const k = p.deadT / 1.3;
     ctx.save(); ctx.translate(p.x - k * 30, p.y + k * k * 160); ctx.rotate(k * 5); ctx.globalAlpha = 1 - k;
-    drawSprWH(ctx, `av_${av.id}_hurt`, 0, 0, 124 * PLAYER_ART_K, 84 * PLAYER_ART_K); ctx.restore(); return;
+    drawSprWH(ctx, `av_${av.id}_hurt`, 0, 0, 104 * PLAYER_ART_K, 70 * PLAYER_ART_K); ctx.restore(); return;
   }
   let a = 1;
   if (p.inv > 0) a = set.reduced ? 0.55 : Math.floor(now / 80) % 2 ? 0.3 : 1;
@@ -66,9 +69,9 @@ function drawPlayer(ctx, g, set, now, Q) {
     for (let i = 0; i < 3; i++) { const r = (1 - ((k + i / 3) % 1)) * 70 + 8; ctx.globalAlpha = 0.25 + 0.6 * ((k + i / 3) % 1); ctx.beginPath(); ctx.arc(p.x + (g.muzzle || [MUZZLE_DX])[0], p.y + (g.muzzle || [0, 0])[1], r, 0, TAU); ctx.stroke(); }
     ctx.globalAlpha = 1;
   }
-  const K = PLAYER_ART_K, mz = g.muzzle || [MUZZLE_DX, MUZZLE_DY], cx = p.x, cy = p.y + 2 * K, AW = 124 * K, AH = 84 * K;
-  if (Q > 0) { const fl = 0.8 + 0.2 * Math.sin(now / 40); drawGlow(ctx, sh, p.x - 34 * K, p.y + 36 * K, 9 * fl, 0.75); drawGlow(ctx, sh, p.x - 22 * K, p.y + 39 * K, 10 * fl, 0.75); }
-  if (Q > 0 && p.muzzle > 0) drawGlow(ctx, sh, p.x + mz[0] + 4, p.y + mz[1], 22, 0.85);
+  const K = PLAYER_ART_K, mz = g.muzzle || [MUZZLE_DX, MUZZLE_DY], cx = p.x + (50 - SPRITE_ANCHOR[0]) * K, cy = p.y + (33 - SPRITE_ANCHOR[1]) * K, AW = 104 * K, AH = 70 * K;
+  if (Q > 0) { const fl = 0.8 + 0.2 * Math.sin(now / 40); drawGlow(ctx, sh, p.x + (2 - SPRITE_ANCHOR[0]) * K, p.y + (56 - SPRITE_ANCHOR[1]) * K, 14 * fl, 0.8); }
+  if (Q > 0 && p.muzzle > 0) drawGlow(ctx, p.bullet ? BULLET_POWERUPS[p.bullet.kind].color : sh, p.x + mz[0] + 4, p.y + mz[1], 22, 0.85);
   if (p.upT > 0 && Q > 0) drawGlow(ctx, "#ffd34f", p.x + mz[0] * 0.6, p.y + mz[1], 46, p.upT);
   const recoil = av.cat === "cannon" ? p.recoil * 1.6 : av.cat === "sniper" ? p.recoil * 1.2 : av.cat === "bow" ? 0 : p.recoil * 0.7;
   ctx.save(); ctx.translate(-recoil, bob); ctx.rotate(p.tilt * 0.6);
@@ -78,8 +81,8 @@ function drawPlayer(ctx, g, set, now, Q) {
   if (p.upT > 0) { ctx.strokeStyle = "#ffd34f"; ctx.lineWidth = 3; ctx.globalAlpha = p.upT / 0.8; ctx.beginPath(); ctx.arc(p.x, p.y - 4, 46 - p.upT * 24, 0, TAU); ctx.stroke(); ctx.globalAlpha = 1; }
   if (p.shield > 0) { // bubble plus a ring that drains with the remaining duration
     const f = p.shield / p.shieldMax, blink = p.shield < 1.5 && Math.floor(now / 100) % 2;
-    ctx.fillStyle = "#9ff7c4"; ctx.globalAlpha = blink ? 0.04 : 0.1; ctx.beginPath(); ctx.ellipse(p.x + 6, p.y + 2, 74, 54, 0, 0, TAU); ctx.fill();
-    ctx.globalAlpha = blink ? 0.35 : 0.85; ctx.strokeStyle = "#9ff7c4"; ctx.lineWidth = 3; ctx.beginPath(); ctx.ellipse(p.x + 6, p.y + 2, 74, 54, 0, -Math.PI / 2, -Math.PI / 2 + TAU * f); ctx.stroke(); ctx.globalAlpha = 1;
+    ctx.fillStyle = "#9ff7c4"; ctx.globalAlpha = blink ? 0.04 : 0.1; ctx.beginPath(); ctx.ellipse(p.x + 24, p.y - 6, 80, 58, 0, 0, TAU); ctx.fill();
+    ctx.globalAlpha = blink ? 0.35 : 0.85; ctx.strokeStyle = "#9ff7c4"; ctx.lineWidth = 3; ctx.beginPath(); ctx.ellipse(p.x + 24, p.y - 6, 80, 58, 0, -Math.PI / 2, -Math.PI / 2 + TAU * f); ctx.stroke(); ctx.globalAlpha = 1;
   }
   ctx.fillStyle = "#ffffff"; ctx.strokeStyle = "#1a1030"; ctx.lineWidth = 2;
   ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, TAU); ctx.fill(); ctx.stroke();
@@ -90,13 +93,14 @@ function drawPlayerShots(ctx, g, Q) {
   const av = AVATAR_BY_ID[g.avatar] || AVATARS[0], [col, core] = av.shot, cat = av.cat;
   for (const s of g.pbul) {
     ctx.save(); ctx.translate(s.x, s.y); ctx.rotate(Math.atan2(s.vy, s.vx));
+    if (s.kind) { drawPowerShot(ctx, s, Q); ctx.restore(); continue; }
     if (cat === "bow") { // arrow: shaft, head, fletching, short magical trail
       if (Q > 0) { const tg = ctx.createLinearGradient(-36, 0, -14, 0); tg.addColorStop(0, col + "00"); tg.addColorStop(1, col + "aa"); ctx.strokeStyle = tg; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(-36, 0); ctx.lineTo(-14, 0); ctx.stroke(); }
       if (Q > 1) { ctx.globalAlpha = 0.4; ctx.drawImage(glow(col, 32), -16, -8, 34, 16); ctx.globalAlpha = 1; }
       ctx.strokeStyle = "#120c22"; ctx.lineWidth = 3.2; ctx.beginPath(); ctx.moveTo(-15, 0); ctx.lineTo(8, 0); ctx.stroke();
-      ctx.strokeStyle = av.trim[0]; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.moveTo(-15, 0); ctx.lineTo(8, 0); ctx.stroke();
+      ctx.strokeStyle = av.wc[2]; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.moveTo(-15, 0); ctx.lineTo(8, 0); ctx.stroke();
       ctx.fillStyle = col; ctx.strokeStyle = "#120c22"; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(15, 0); ctx.lineTo(6, -4.4); ctx.lineTo(8, 0); ctx.lineTo(6, 4.4); ctx.closePath(); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = av.gem; ctx.beginPath(); ctx.moveTo(-11, 0); ctx.lineTo(-17, -4); ctx.lineTo(-14, 0); ctx.lineTo(-17, 4); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = av.out[2]; ctx.beginPath(); ctx.moveTo(-11, 0); ctx.lineTo(-17, -4); ctx.lineTo(-14, 0); ctx.lineTo(-17, 4); ctx.closePath(); ctx.fill();
       ctx.fillStyle = core; ctx.beginPath(); ctx.arc(12, 0, 1.4, 0, TAU); ctx.fill();
     } else if (cat === "sniper") { // slim, bright precision round
       if (Q > 0) { const tg = ctx.createLinearGradient(-44, 0, -10, 0); tg.addColorStop(0, col + "00"); tg.addColorStop(1, col + "cc"); ctx.fillStyle = tg; ctx.fillRect(-44, -1.2, 34, 2.4); }
@@ -117,6 +121,23 @@ function drawPlayerShots(ctx, g, Q) {
       ctx.fillStyle = core; ctx.beginPath(); ctx.ellipse(2, 0, 8, 2.2, 0, 0, TAU); ctx.fill();
     }
     ctx.restore();
+  }
+}
+function drawPowerShot(ctx, s, Q) {
+  const pu = BULLET_POWERUPS[s.kind], c = pu.color;
+  if (s.kind === "comet") { // long streaking comet with a fiery pink tail
+    const tg = ctx.createLinearGradient(-56, 0, 0, 0); tg.addColorStop(0, c + "00"); tg.addColorStop(1, c + "dd");
+    ctx.fillStyle = tg; ctx.beginPath(); ctx.moveTo(0, -5); ctx.lineTo(-56, 0); ctx.lineTo(0, 5); ctx.fill();
+    if (Q > 0) { ctx.globalAlpha = 0.6; ctx.drawImage(glow(c, 32), -16, -12, 34, 24); ctx.globalAlpha = 1; }
+    ctx.fillStyle = "#ffffff"; ctx.strokeStyle = c; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(2, 0, 5, 0, TAU); ctx.fill(); ctx.stroke();
+  } else if (s.kind === "nova") { // large spinning star
+    if (Q > 0) { ctx.globalAlpha = 0.55; ctx.drawImage(glow(c, 32), -20, -20, 40, 40); ctx.globalAlpha = 1; }
+    ctx.rotate(s.age * 14); ctx.fillStyle = c; ctx.strokeStyle = "#5a3a08"; ctx.lineWidth = 1.6; starPath(ctx, 0, 0, 12, 5, 5); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = "#ffffff"; starPath(ctx, 0, 0, 5.5, 2.4, 5); ctx.fill();
+  } else { // prism shard with a rainbow edge
+    if (Q > 0) { ctx.globalAlpha = 0.5; ctx.drawImage(glow(c, 32), -16, -10, 32, 20); ctx.globalAlpha = 1; }
+    const gr = ctx.createLinearGradient(-12, -6, 14, 6); gr.addColorStop(0, "#ff9ad5"); gr.addColorStop(0.5, c); gr.addColorStop(1, "#ffe27a");
+    ctx.fillStyle = gr; ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.moveTo(16, 0); ctx.lineTo(0, -7); ctx.lineTo(-12, 0); ctx.lineTo(0, 7); ctx.closePath(); ctx.fill(); ctx.stroke();
   }
 }
 function starPath(ctx, x, y, R, r, n, rot = 0) { ctx.beginPath(); for (let i = 0; i < n * 2; i++) { const rr = i % 2 ? r : R, a = rot + (i * Math.PI) / n; ctx.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); } ctx.closePath(); }
@@ -183,8 +204,23 @@ function drawEnemy(ctx, e, g, now, Q) {
   const bob = d.move === "turret" || d.move === "edge" ? 0 : Math.sin(now / 200 + e.y0) * 1.5;
   const squash = e.flash > 0 ? 0.9 : 1;
   ctx.save(); ctx.translate(e.x, e.y + bob); ctx.scale(2 - squash, squash);
-  drawSpr(ctx, name, 0, 0, sz, { flipY: e.flip, rot: e.rot, white: e.flash > 0 ? 0.75 : 0, alpha: e.st === "mark" ? 0.4 : 1 });
+  if (d.wide) { const S = SPR[name]; drawSprWH(ctx, name, 0, 0, sz, sz * (S ? S.vh / S.vw : 0.7), { rot: d.move === "rush" && e.st === "dash" ? e.rot : 0, white: e.flash > 0 ? 0.75 : e.st === "tele" && Math.floor(now / 90) % 2 ? 0.45 : 0 }); }
+  else drawSpr(ctx, name, 0, 0, sz, { flipY: e.flip, rot: e.rot, white: e.flash > 0 ? 0.75 : 0, alpha: e.st === "mark" ? 0.4 : 1 });
   ctx.restore();
+  if (d.move === "rush" && e.st === "tele") { // rush warning: aim line to the locked target, pulsing ring and "!" marker
+    const k = e.stT / d.tele;
+    ctx.strokeStyle = "#ff3f7a"; ctx.lineWidth = 2.5; ctx.setLineDash([10, 7]); ctx.globalAlpha = 0.5 + 0.4 * Math.sin(now / 50);
+    ctx.beginPath(); ctx.moveTo(e.x, e.y); ctx.lineTo(e.x + (e.tx - e.x) * 1.6, e.y + (e.ty - e.y) * 1.6); ctx.stroke(); ctx.setLineDash([]);
+    ctx.globalAlpha = 0.9; ctx.beginPath(); ctx.arc(e.x, e.y, sz * (0.9 - k * 0.35), 0, TAU); ctx.stroke(); ctx.globalAlpha = 1;
+    txt(ctx, "!", e.x, e.y - sz * 0.6, 26, "#ff3f7a", "center", 900);
+  }
+  if (d.armored) { // armored: tier-coloured health bar + tier pips
+    const T = ARMOR_TIERS[d.armored], w = sz * 0.8, x0 = e.x - w / 2, y0 = e.y - sz / 2 - 12;
+    ctx.fillStyle = "#120c22"; roundRect(ctx, x0 - 2, y0 - 2, w + 4, 9, 4); ctx.fill();
+    ctx.fillStyle = e.dmgT > 0 ? "#ffffff" : T.metal[0]; roundRect(ctx, x0, y0, Math.max(0, w * (e.hp / e.maxHp)), 5, 2.5); ctx.fill();
+    for (let i = 0; i < d.armored; i++) { ctx.fillStyle = T.metal[0]; ctx.strokeStyle = "#120c22"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(x0 + i * 9, y0 - 5); ctx.lineTo(x0 + i * 9 + 4, y0 - 10); ctx.lineTo(x0 + i * 9 + 8, y0 - 5); ctx.closePath(); ctx.fill(); ctx.stroke(); }
+    txt(ctx, Math.ceil(e.hp) + "", x0 + w + 6, y0 + 6, 12, "#ffffff", "left", 800);
+  }
   if (e.muzzle > 0 && Q > 0) drawGlow(ctx, "#ffb347", e.x - sz * 0.45, e.y, 10, 0.8);
   if (e.maxShield > 0 && e.shield > 0 && e.type !== "glacier_guard") {
     const w = sz * 0.6; ctx.fillStyle = "#1a1030"; ctx.fillRect(e.x - w / 2, e.y - sz / 2 - 7, w, 4);
@@ -308,10 +344,12 @@ function drawBoss(ctx, b, g, now) {
 // ============================================================ pickups (distinct shape + colour + label)
 function drawPickup(ctx, k, now, Q) {
   const y = k.y + Math.sin(now / 200 + k.x * 0.05) * 3, s = 1 + Math.sin(now / 150) * 0.06, green = k.kind === "hp" || k.kind === "shield";
-  if (Q > 0) drawGlow(ctx, green ? "#6fe04a" : "#ffd34f", k.x, y, 24, 0.45);
+  if (Q > 0) drawGlow(ctx, BULLET_POWERUPS[k.kind] ? BULLET_POWERUPS[k.kind].color : green ? "#6fe04a" : "#ffd34f", k.x, y, 24, 0.45);
   ctx.save(); ctx.translate(k.x, y); ctx.scale(s, s); ctx.lineWidth = 2.5; ctx.strokeStyle = "#1a1030";
   if (k.kind === "hp") { ctx.fillStyle = "#6fe04a"; roundRect(ctx, -12, -12, 24, 24, 6); ctx.fill(); ctx.stroke(); ctx.fillStyle = "#fff"; ctx.fillRect(-3, -8, 6, 16); ctx.fillRect(-8, -3, 16, 6); }
   else if (k.kind === "shield") { ctx.fillStyle = "#6fe04a"; ctx.beginPath(); for (let i = 0; i < 6; i++) ctx.lineTo(Math.cos(i * TAU / 6) * 13, Math.sin(i * TAU / 6) * 13); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.moveTo(0, -7); ctx.lineTo(6, -4); ctx.lineTo(5, 3); ctx.lineTo(0, 7); ctx.lineTo(-5, 3); ctx.lineTo(-6, -4); ctx.closePath(); ctx.fill(); }
+  else if (BULLET_POWERUPS[k.kind]) { const c = BULLET_POWERUPS[k.kind].color; ctx.fillStyle = "#1a1040"; ctx.beginPath(); ctx.arc(0, 0, 14, 0, TAU); ctx.fill(); ctx.strokeStyle = c; ctx.lineWidth = 3; ctx.stroke();
+    ctx.fillStyle = c; if (k.kind === "nova") { starPath(ctx, 0, 0, 8, 3.5, 5, now / 300); ctx.fill(); } else if (k.kind === "comet") { ctx.beginPath(); ctx.arc(3, -2, 4, 0, TAU); ctx.fill(); ctx.fillRect(-9, -3, 9, 2); ctx.fillRect(-7, 1, 7, 2); } else { ctx.beginPath(); ctx.moveTo(8, 0); ctx.lineTo(0, -6); ctx.lineTo(-7, 0); ctx.lineTo(0, 6); ctx.closePath(); ctx.fill(); } }
   else if (k.kind === "up") { ctx.rotate(now / 600); ctx.fillStyle = "#ffd34f"; starPath(ctx, 0, 0, 16, 7.5, 5, -Math.PI / 2); ctx.fill(); ctx.stroke(); ctx.rotate(-now / 600); ctx.fillStyle = "#1a1030"; ctx.font = `800 12px ${FONT}`; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText("P", 0, 1); }
   else { const r = k.kind === "big" ? 12 : 8; ctx.fillStyle = "#e0b84a"; ctx.beginPath(); ctx.moveTo(0, -r); ctx.lineTo(r * 0.8, 0); ctx.lineTo(0, r); ctx.lineTo(-r * 0.8, 0); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.fillStyle = "#fff6c9"; ctx.beginPath(); ctx.moveTo(0, -r * 0.6); ctx.lineTo(r * 0.3, 0); ctx.lineTo(0, 0); ctx.fill(); }
   ctx.restore();
@@ -350,7 +388,11 @@ function drawHUD(ctx, g, set, now) {
   ctx.strokeStyle = ready ? "#5ef2f2" : "#3f8f9a"; ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(sx, sy, 14, -Math.PI / 2, -Math.PI / 2 + TAU * frac); ctx.stroke();
   txt(ctx, set.touch ? "" : "E", sx, sy + 6, 16, ready ? "#ffffff" : "#8aa", "center");
   txt(ctx, p.charge > 0 ? "Charging…" : ready ? "Blast ready" : Math.ceil(p.specialCd) + "s", sx + 24, sy + 6, 15, ready || p.charge > 0 ? "#5ef2f2" : "#7a8aa0");
-  if (p.shield > 0) txt(ctx, "Shield " + p.shield.toFixed(1) + "s", 420, 33, 15, "#9ff7c4");
+  let chipX = 440;
+  const chip = (label, col, frac) => { ctx.fillStyle = "rgba(18,12,40,0.8)"; roundRect(ctx, chipX, 14, 128, 26, 13); ctx.fill(); ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.stroke();
+    ctx.strokeStyle = col; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(chipX + 13, 27, 7, -Math.PI / 2, -Math.PI / 2 + TAU * frac); ctx.stroke(); txt(ctx, label, chipX + 26, 32, 13, col); chipX += 136; };
+  if (p.shield > 0) chip("Shield " + p.shield.toFixed(1) + "s", "#9ff7c4", p.shield / p.shieldMax);
+  if (p.bullet) { const pu = BULLET_POWERUPS[p.bullet.kind]; chip(pu.name.split(" ")[0] + " " + p.bullet.t.toFixed(1) + "s", pu.color, p.bullet.t / POWERUP_TIME); }
   txt(ctx, g.score.toLocaleString(), W - 86, 36, 26, "#ffe08a", "right", 800);
   if (g.mode === "endless") { txt(ctx, g.kills + " defeated", W - 86, 58, 14, "#c9bde8", "right"); const nx = EndlessRules.STEP_SECONDS - (g.t % EndlessRules.STEP_SECONDS); txt(ctx, `Threat ${EndlessRules.threatLevel(g.t)} · next in ${Math.ceil(nx)}s`, W - 86, 78, 13, "#ff9ad5", "right"); }
 

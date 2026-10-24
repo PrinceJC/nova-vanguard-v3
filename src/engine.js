@@ -2,10 +2,10 @@
 // ============================================================ constants & helpers
 const W = 960, H = 540, TAU = Math.PI * 2;
 const MAX_EBUL = 420, MAX_PBUL = 160;
-const SPECIAL_CD = 14, PLAYER_HP = 5, INV_TIME = 1.0, PLAYER_SPEED = 300, BLAST_CHARGE = 0.45, BLAST_SPEED = 1700, BLAST_MAX = 1150;
+const SPECIAL_CD = 14, PLAYER_HP = 3, INV_TIME = 1.0, PLAYER_SPEED = 300, BLAST_CHARGE = 0.45, BLAST_SPEED = 1700, BLAST_MAX = 1150;
 const CAMPAIGN_HP_CAP = 2, ENEMY_SCALE = 2.1, ELITE_SCALE = 1.5, FIRE_INT = EndlessRules.FIRE_INT, MAX_TIER_BONUS = EndlessRules.MAX_TIER_BONUS;
 // player art: 140 x 92 px (≈15% of playfield width incl. weapon, ≈17% of height); hitbox stays a 6 px core
-const PLAYER_ART_W = 152, PLAYER_ART_K = 152 / 124, PLAYER_HITBOX = 6;
+const PLAYER_ART_W = 150, PLAYER_ART_K = 150 / 104, PLAYER_HITBOX = 6;
 const MUZZLE_DX = (MUZZLES.cannon[0] - SPRITE_ANCHOR[0]) * PLAYER_ART_K, MUZZLE_DY = (MUZZLES.cannon[1] - SPRITE_ANCHOR[1]) * PLAYER_ART_K;
 // projectile origin for an avatar's weapon (firearm muzzle or bow release point), relative to the hitbox centre
 function muzzleFor(id) { const a = AVATAR_BY_ID[id] || AVATARS[0], m = MUZZLES[a.cat]; return [(m[0] - SPRITE_ANCHOR[0]) * PLAYER_ART_K, (m[1] - SPRITE_ANCHOR[1]) * PLAYER_ART_K]; }
@@ -47,7 +47,16 @@ const ENEMIES = {
   void_scout:    { size: 40, r: 12, hp: 3, speed: 150, move: "straight", fire: { kind: "burst3", every: 2.4, speed: 190 }, score: 150 },
   rift_jumper:   { size: 40, r: 13, hp: 3, move: "teleport", fire: { kind: "aimed", speed: 175 }, score: 200 },
   eclipse_knight:{ size: 56, r: 18, hp: 6, shield: 8, speed: 55, move: "straight", fire: { kind: "spread3", every: 3.0, speed: 155 }, score: 300 },
+  // Endless families: standard mite, armored bulwarks (5/10/15/20 hits), fast darts that telegraph a rush
+  mite:          { size: 30, r: 11, hp: 1, speed: 105, move: "wave", amp: 30, freq: 2.2, score: 80 },
+  bulwark1:      { size: 46, r: 18, hp: 5, speed: 50, move: "straight", armored: 1, score: 300 },
+  bulwark2:      { size: 50, r: 19, hp: 10, speed: 46, move: "straight", armored: 2, score: 600 },
+  bulwark3:      { size: 54, r: 20, hp: 15, speed: 42, move: "straight", armored: 3, score: 950 },
+  bulwark4:      { size: 58, r: 21, hp: 20, speed: 38, move: "straight", armored: 4, score: 1400 },
+  dart:          { size: 44, r: 12, hp: 2, move: "rush", tele: 0.9, score: 220, wide: true },
 };
+const BULLET_POWERUPS = { comet: { name: "Comet rounds", speed: 1.6, big: 0, color: "#ffb8f0" }, nova: { name: "Nova stars", speed: 1.1, big: 9, color: "#ffe27a" }, prism: { name: "Prism shards", speed: 1.35, big: 4, color: "#9ffcff" } };
+const POWERUP_TIME = 10;
 
 // ============================================================ game creation
 function createGame(opts) {
@@ -56,7 +65,7 @@ function createGame(opts) {
   const g = {
     mode: endless ? "endless" : "campaign", level: endless ? 0 : L.n, L, lv: endless ? { pal: WORLDS[0].pal, bg: WORLDS[0].bg, name: "Endless", music: WORLDS[9].music, world: WORLDS[0] } : L,
     t: 0, state: endless ? "endless" : "intro", stateT: 0, avatar: opts.avatar || "lumi", muzzle: muzzleFor(opts.avatar || "lumi"), quality: opts.quality ?? 2,
-    player: { x: 150, y: H / 2, hp: PLAYER_HP, tier: endless ? 1 : clamp(opts.tier | 0, 1, 3), inv: 0, shield: 0, shieldMax: 6, fireCd: 0, specialCd: 0, charge: 0, pullX: 0, pullY: 0, pushX: 0, firing: false, dead: false, muzzle: 0, recoil: 0, tilt: 0, hurtT: 0, healT: 0, upT: 0, deadT: 0 },
+    player: { x: 150, y: H / 2, hp: PLAYER_HP, tier: endless ? 1 : clamp(opts.tier | 0, 1, 3), inv: 0, shield: 0, shieldMax: 6, fireCd: 0, specialCd: 0, charge: 0, pullX: 0, pullY: 0, pushX: 0, firing: false, dead: false, muzzle: 0, recoil: 0, tilt: 0, hurtT: 0, healT: 0, upT: 0, deadT: 0, bullet: null },
     enemies: [], pbul: [], ebul: [], pickups: [], parts: [], hz: [], queue: [], obs: [], texts: [], blast: null,
     boss: null, bossesSpawned: 0, waves: endless ? [] : buildCampaignWaves(L.n), waveIdx: 0, waveT: 1.2, sinceLast: 0,
     score: 0, kills: 0, hitsTaken: 0, events: [], shake: 0, flash: 0, scroll: 0, hpSpawns: 0,
@@ -89,11 +98,11 @@ function queueGroup(g, type, count, pattern, base) {
 
 function spawnEnemy(g, type, y, x, o = {}) {
   const def = ENEMIES[type], elite = !!o.elite;
-  const lvMul = (g.mode === "campaign" ? 1 + Math.min(1.2, (g.level - 1) * 0.012) : 1) * (elite && o.hp === undefined ? 2.6 : 1);
-  const base = Math.min(def.size * ENEMY_SCALE, 105), k = base / def.size, size = base * (elite ? ELITE_SCALE : 1), er = def.r * k * (elite ? ELITE_SCALE : 1);
+  const lvMul = (g.mode === "campaign" && !def.armored ? 1 + Math.min(1.2, (g.level - 1) * 0.012) : 1) * (elite && o.hp === undefined ? 2.6 : 1);
+  const base = Math.min(def.size * ENEMY_SCALE, def.armored ? 92 + def.armored * 8 : 105), k = base / def.size, size = base * (elite ? ELITE_SCALE : 1), er = def.r * k * (elite ? ELITE_SCALE : 1);
   const e = { type, def, size, r: er, x: x ?? W + size / 2 + 10, y: 0, y0: 0, hp: o.hp ?? def.hp * lvMul, shield: o.shield ?? (def.shield || 0) * (g.mode === "campaign" ? 1 + Math.min(0.6, g.level * 0.006) : 1) * (elite ? 1.5 : 1),
     t: 0, st: "in", stT: 0, fireT: def.fire && def.fire.every ? rand(0.6, 1.4) : 0, flash: 0, flip: false, entered: false, burst: 0, burstT: 0, rot: 0, jumps: 0, kb: 0, sid: o.sid || 0, elite, score: o.score ?? def.score * (elite ? 3 : 1) };
-  e.maxShield = e.shield; e.spd = g.mode === "endless" ? EndlessRules.speedAt(g.t) : 1;
+  e.maxShield = e.shield; e.maxHp = e.hp; e.spd = g.mode === "endless" ? EndlessRules.speedAt(g.t) : 1;
   if (y === "top" || y === "bottom") { e.flip = y === "top"; e.y = y === "top" ? size / 2 + 2 : H - size / 2 - 2; }
   else { const amp = def.amp || 12; e.y = clamp(y, amp + size * 0.5 + 8, H - amp - size * 0.5 - 8); }
   e.y0 = e.y; e.stopX = rand(600, 840);
@@ -166,7 +175,7 @@ function enemyFire(g, e) {
 
 function updateEnemy(g, e, dt) {
   const d = e.def, p = g.player;
-  e.t += dt; e.stT += dt; if (e.flash > 0) e.flash -= dt; if (e.muzzle > 0) e.muzzle -= dt;
+  e.t += dt; e.stT += dt; if (e.flash > 0) e.flash -= dt; if (e.dmgT > 0) e.dmgT -= dt; if (e.muzzle > 0) e.muzzle -= dt;
   if (e.kb > 0) { e.x += e.kb * dt; e.kb = Math.max(0, e.kb - 600 * dt); }
   const odt = dt; dt *= e.spd || 1;   // smooth, cumulative speed-up in Endless (1× in Campaign)
   switch (d.move) {
@@ -193,6 +202,12 @@ function updateEnemy(g, e, dt) {
       else if (e.st === "tele") { if (e.stT > d.tele) { e.st = "dash"; ev(g, "sfx", { name: "dash" }); } }
       else e.x -= d.dash * dt;
       break;
+    case "rush": {   // enter, lock onto the player's position with a visible cue, then dash in a straight line
+      if (e.st === "in") { e.x -= 230 * odt; if (e.x <= W - 80) { e.st = "tele"; e.stT = 0; e.tx = p.x; e.ty = p.y; } }
+      else if (e.st === "tele") { if (e.stT > d.tele) { const a = Math.atan2(e.ty - e.y, e.tx - e.x), v = Math.min(780, 520 * (e.spd || 1)); e.vx = Math.cos(a) * v; e.vy = Math.sin(a) * v; e.rot = a + Math.PI; e.st = "dash"; ev(g, "sfx", { name: "dash" }); } }
+      else { e.x += e.vx * odt; e.y += e.vy * odt; }
+      break;
+    }
     case "teleport":
       if (e.st === "in") { e.x -= 150 * dt; if (e.x <= e.stopX) { e.st = "wait"; e.stT = 0; } }
       else if (e.st === "wait") {
@@ -241,8 +256,8 @@ function updateObstacles(g, dt) {
 
 // ============================================================ player
 function playerFire(g) {
-  const p = g.player, mx = p.x + g.muzzle[0], my = p.y + g.muzzle[1], sp = 820;
-  for (const a of SHOT_PATTERNS[p.tier]) if (g.pbul.length < MAX_PBUL) g.pbul.push({ x: mx, y: my, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, dmg: 1, age: 0 });
+  const p = g.player, mx = p.x + g.muzzle[0], my = p.y + g.muzzle[1], pu = p.bullet && BULLET_POWERUPS[p.bullet.kind], sp = 820 * (pu ? pu.speed : 1);
+  for (const a of SHOT_PATTERNS[p.tier]) if (g.pbul.length < MAX_PBUL) g.pbul.push({ x: mx, y: my, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, dmg: 1, age: 0, kind: pu ? p.bullet.kind : null, big: pu ? pu.big : 0 });
   p.muzzle = 0.06; p.recoil = 2.5;
   ev(g, "sfx", { name: "shoot" });
 }
@@ -306,8 +321,8 @@ function damageEnemy(g, e, dmg, ignoreShield, cause = 0) {
     ev(g, "sfx", { name: "clink" });
     return;
   }
-  e.hp -= dmg; e.flash = 0.08; e.kb = Math.max(e.kb, 40);
-  if (e.hp > 0) { ev(g, "sfx", { name: "hit" }); return; }
+  e.hp -= dmg; e.flash = 0.08; e.kb = Math.max(e.kb, e.def.armored ? 12 : 40);
+  if (e.hp > 0) { if (e.def.armored) { e.dmgT = 0.25; particle(g, e.x - e.r * 0.7, e.y, ARMOR_TIERS[e.def.armored].metal[0], 2, 110, 0.25, 2, "shard"); ev(g, "sfx", { name: "clink" }); } else ev(g, "sfx", { name: "hit" }); return; }
   e.dead = true; g.kills++;
   explosion(g, e.x, e.y, Math.min(1.6, e.size / 80), e.elite ? "#ffd34f" : "#9aa4c0");
   ev(g, "sfx", { name: "pop" });
@@ -324,6 +339,7 @@ function damageEnemy(g, e, dmg, ignoreShield, cause = 0) {
   const r = Math.random();
   if (r < 0.06) dropPickup(g, e.x, e.y, "hp");
   else if (r < 0.1) dropPickup(g, e.x, e.y, "shield");
+  else if (r < 0.14) dropPickup(g, e.x, e.y, pick(["comet", "nova", "prism"]));
   else if (r < 0.28) dropPickup(g, e.x, e.y, "score");
 }
 function damageObstacle(g, o, dmg) {
@@ -370,11 +386,12 @@ function updateGame(g, dt, input) {
     else { mx = (input.right ? 1 : 0) - (input.left ? 1 : 0); my = (input.down ? 1 : 0) - (input.up ? 1 : 0); const l = Math.hypot(mx, my); if (l > 1) { mx /= l; my /= l; } }
     p.x += (mx * PLAYER_SPEED + p.pullX + p.pushX) * dt;
     p.y += (my * PLAYER_SPEED + p.pullY) * dt;
-    p.x = clamp(p.x, 50, W - 80); p.y = clamp(p.y, 64, H - 50);
+    p.x = clamp(p.x, 50, W - 104); p.y = clamp(p.y, 66, H - 40);
     p.pullX = 0; p.pullY = 0; p.pushX *= Math.pow(0.1, dt); if (Math.abs(p.pushX) < 2) p.pushX = 0;
     p.tilt += (my * 0.12 - p.tilt) * Math.min(1, dt * 10);
     if (p.inv > 0) p.inv -= dt;
     if (p.shield > 0) p.shield -= dt;
+    if (p.bullet) { p.bullet.t -= dt; if (p.bullet.t <= 0) { p.bullet = null; floatText(g, p.x + 30, p.y - 50, "Power-up ended", "#c9bde8"); } }
     if (p.specialCd > 0) p.specialCd -= dt;
     for (const k of ["muzzle", "hurtT", "healT", "upT"]) if (p[k] > 0) p[k] -= dt;
     p.recoil *= Math.pow(0.0005, dt);
@@ -467,6 +484,7 @@ function collect(g, k) {
   const pts = g.mode === "endless" ? EndlessRules.PICK_POINTS : { score: 250, big: 1000, hp: 50, shield: 0, up: 0 };
   if (k.kind === "hp") { const full = p.hp >= PLAYER_HP; p.hp = Math.min(PLAYER_HP, p.hp + 1); p.healT = 0.6; floatText(g, p.x, p.y - 40, full ? "Health full" : "+1 health", "#6fe04a"); }
   else if (k.kind === "shield") { p.shield = p.shieldMax; floatText(g, p.x, p.y - 40, "Shield 6s", "#9ff7c4"); }
+  else if (BULLET_POWERUPS[k.kind]) { const pu = BULLET_POWERUPS[k.kind]; p.bullet = { kind: k.kind, t: POWERUP_TIME }; p.upT = 0.6; floatText(g, p.x + 40, p.y - 60, `${pu.name}! ${POWERUP_TIME}s`, pu.color, 22); }
   else if (k.kind === "up") {
     p.upT = 0.9;
     if (p.tier < 3) { p.tier++; floatText(g, p.x + 40, p.y - 60, "Weapon Upgraded!", "#ffd34f", 26); floatText(g, p.x + 40, p.y - 34, `${EndlessRules.TIER_SHOTS[p.tier]} shots`, "#ffe08a"); }
@@ -474,7 +492,7 @@ function collect(g, k) {
   }
   else floatText(g, k.x, k.y - 16, "+" + (pts[k.kind] || 0), "#ffe08a");
   g.score += pts[k.kind] || 0;
-  particle(g, k.x, k.y, k.kind === "hp" || k.kind === "shield" ? "#6fe04a" : "#ffd34f", 10, 110, 0.45);
+  particle(g, k.x, k.y, BULLET_POWERUPS[k.kind] ? BULLET_POWERUPS[k.kind].color : k.kind === "hp" || k.kind === "shield" ? "#6fe04a" : "#ffd34f", 10, 110, 0.45);
   if (g.parts.length < QUALITY_PARTS[g.quality]) g.parts.push({ ring: true, x: k.x, y: k.y, life: 0.3, max: 0.3, size: 26, color: k.kind === "hp" || k.kind === "shield" ? "#6fe04a" : "#ffd34f" });
   ev(g, "sfx", { name: k.kind === "up" ? "powerup" : k.kind === "hp" ? "heal" : "pickup" });
 }
@@ -484,7 +502,7 @@ function collide(g) {
   for (const s of g.pbul) {
     for (const e of g.enemies) {
       if (e.dead || e.x > W + 10 || e.t < 0.2) continue;
-      const rr = e.r + 6;
+      const rr = e.r + 6 + (s.big || 0);
       if (d2(s.x, s.y, e.x, e.y) < rr * rr) { s.dead = true; impact(g, s); damageEnemy(g, e, s.dmg, false, 0); break; }
     }
     if (s.dead) continue;

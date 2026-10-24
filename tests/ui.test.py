@@ -54,7 +54,7 @@ async def main():
         # ---------- avatar selection screen
         await pg.evaluate("()=>{const s=window.__lumi.save();}")
         await pg.get_by_role("button", name="Avatars", exact=True).click(); await pg.wait_for_timeout(1200); await pg.screenshot(path="/tmp/a_avatars.png")
-        info = await pg.inner_text(".avinfo"); ok("Cannon" in info and "Nova" in info, "selection shows name + weapon category: " + info.split("\n")[1][:60])
+        info = await pg.inner_text(".avinfo"); ok("Cannon" in info and "Astra" in info, "selection shows name + weapon category: " + info.split("\n")[1][:60])
         await pg.click(".avtile >> nth=1"); await pg.wait_for_timeout(300); await pg.click("text=Use Lumi"); await pg.wait_for_timeout(300)
         ok((await pg.evaluate("()=>window.__lumi.save()"))["avatars"]["selected"] == "nova", "selected Lumi (sniper)")
         await pg.get_by_role("button", name="Back", exact=True).click()
@@ -66,6 +66,21 @@ async def main():
         await pg.evaluate("()=>{const g=window.__lumi.game(); for(let i=0;i<5;i++){g.player.inv=0;g.player.shield=0;hurtPlayer(g);} }"); await pg.wait_for_timeout(2600)
         await pg.click("text=Retry level"); await pg.wait_for_timeout(500)
         ok(await pg.evaluate("()=>window.__lumi.game().player.tier") == 1, "retry after game over resets weapon to one shot")
+        # clear this level with six shots, continue: the next level must start at one shot, progress kept
+        lvl = await pg.evaluate("()=>window.__lumi.game().level")
+        await pg.evaluate("()=>{const g=window.__lumi.game(); g.god=true; g.player.tier=3; g.waveIdx=g.waves.length; g.enemies=[]; g.queue=[]; g.sinceLast=20;}")
+        for i in range(30):
+            await pg.wait_for_timeout(500)
+            st = await pg.evaluate("()=>{const g=window.__lumi.game(); if(g&&g.boss&&!g.boss.entering&&!g.boss.dying){ g.player.tier=3; g.boss.trans=0; damageBoss(g,{mult:1},1e6);} return window.__lumi.screen()}")
+            if st == "complete": break
+        await pg.wait_for_timeout(600); await pg.click("text=Continue"); await pg.wait_for_timeout(600)
+        g2 = await pg.evaluate("()=>({level: window.__lumi.game().level, tier: window.__lumi.game().player.tier})")
+        sv = await pg.evaluate("()=>window.__lumi.save().campaign")
+        ok(g2["level"] == lvl + 1 and g2["tier"] == 1, f"finished {lvl} with 6 shots → level {g2['level']} starts with {g2['tier']} shot")
+        ok(sv["unlocked"] >= lvl + 1 and sv["completed"][lvl - 1], "unlocked levels and completion kept")
+        await pg.keyboard.press("Escape"); await pg.click("text=Main menu"); await pg.get_by_role("button", name="Campaign", exact=True).click(); await pg.wait_for_timeout(300)
+        await pg.click(f".tile >> nth={lvl - 1}"); await pg.wait_for_timeout(500)
+        ok(await pg.evaluate("()=>window.__lumi.game().player.tier") == 1, "replaying a level from the map starts with one shot")
         await pg.keyboard.up("Space"); await pg.keyboard.press("Escape"); await pg.click("text=Main menu")
         # ---------- archer in endless: no enemy bullets, ranked submission works
         await pg.get_by_role("button", name="Avatars", exact=True).click(); await pg.click(".avtile >> nth=0"); await pg.wait_for_timeout(200)
@@ -79,7 +94,7 @@ async def main():
         for i in range(5):
             await pg.evaluate("()=>{const g=window.__lumi.game(); g.player.inv=0; g.player.shield=0; hurtPlayer(g);}"); await pg.wait_for_timeout(1250)
         await pg.keyboard.up("Space"); await pg.wait_for_timeout(3000)
-        ok("Verified and ranked" in await pg.inner_text(".result"), "endless run verified by the server rules (v3)")
+        ok("Verified and ranked" in await pg.inner_text(".result"), "endless run verified by the server rules (v4)")
         # ---------- three archer/gun/cannon gameplay shots
         for av, path in [("aria", "/tmp/a_bow.png"), ("zephyr", "/tmp/a_gun.png"), ("lumi", "/tmp/a_cannon.png")]:
             await pg.evaluate(f"()=>{{ const g=createGame({{mode:'campaign',level:3,tier:3,avatar:'{av}',god:true}}); g.state='waves'; g.waveIdx=99; window.__shotGame=g; }}")
