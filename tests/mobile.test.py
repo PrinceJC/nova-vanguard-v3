@@ -32,9 +32,9 @@ async def main():
                 await cdp.send("Input.dispatchTouchEvent", {"type": "touchMove", "touchPoints": [{"x": sx, "y": sy - i * 6, "id": 1}]}); await pg.wait_for_timeout(30)
             await cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": sx, "y": sy - 66, "id": 1}, {"x": bx, "y": by, "id": 2}]})
             await pg.wait_for_timeout(700)
-            st = await pg.evaluate("()=>{const g=window.__lumi.game(); const a=g.player.charge>0||g.blast; for(let i=0;i<40;i++) updateGame(g,1/60,{autofire:true}); return {y:g.player.y, cd:g.player.specialCd, firing:g.player.firing && g.pbul.length>0, charged:a}}")
+            st = await pg.evaluate("()=>{const g=window.__lumi.game(); const a=g.player.charge>0||g.blast; for(let i=0;i<40;i++) updateGame(g,1/60,{autofire:true}); return {y:g.player.y, cd:1-g.player.blasts, firing:g.player.firing && g.pbul.length>0, charged:a}}")
             await cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
-            ok(st["y"] < y0 - 20 and st["cd"] > 0 and st["firing"], f"move + blast at the same time (moved {y0 - st['y']:.0f}px up, blast cooldown {st['cd']:.1f}s, auto-fire resumes after the charge)")
+            ok(st["y"] < y0 - 20 and st["cd"] > 0 and st["firing"], f"move + blast at the same time (moved {y0 - st['y']:.0f}px up, blast charge used, auto-fire resumes after the charge)")
             # ---- frame timing during play
             ft = await pg.evaluate("()=>new Promise(r=>{let n=0,t0=performance.now(),last=t0,worst=0;const f=(t)=>{worst=Math.max(worst,t-last);last=t;if(++n<120)requestAnimationFrame(f);else r({avg:(t-t0)/n,worst})};requestAnimationFrame(f)})")
             print(f"  INFO frame time avg {ft['avg']:.1f} ms, worst {ft['worst']:.0f} ms (headless software rendering; real GPUs are faster)")

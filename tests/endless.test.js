@@ -23,7 +23,7 @@ t("killing tough enemies faster than the cannon allows is rejected", () => {
   const end = fast.at(-1)[0] + 0.5; e.kills = fast; e.end = end; e.hits = [end - 4.4, end - 3.3, end - 2.2, end - 1.1, end];
   assert(!R.validate(7, e, end + 2).ok);
 });
-t("blast faster than its cooldown is rejected", () => { const e = clone(base); e.blasts = [10, 15]; e.blasts.sort((a, b) => a - b); assert.match(R.validate(seed, e, el).reason, /cooldown/); });
+t("using more blasts than stored charges is rejected", () => { const e = clone(base); e.blasts = [10, 50]; e.kills = e.kills.filter((k) => k[2] === 0); const kept = new Set(e.kills.map((k) => k[1])); e.picks = e.picks.filter(([t, pid]) => !pid.startsWith("bl") && (!pid.startsWith("d") || kept.has(+pid.slice(1)))); assert.match(R.validate(seed, e, el).reason, /without a stored charge/); });
 t("kill credited to a blast that never happened is rejected", () => { const e = clone(base); const i = e.kills.findIndex((k) => k[2] === 0 && !e.blasts.some((b) => k[0] >= b && k[0] <= b + 1.2)); e.kills[i] = [e.kills[i][0], e.kills[i][1], 1]; assert.match(R.validate(seed, e, el).reason, /blast/); });
 t("run longer than wall-clock time since start is rejected", () => assert.match(R.validate(seed, base, base.end - 30).reason, /longer than/));
 t("run that ends without the player dying is rejected", () => { const e = clone(base); e.hits.pop(); assert(!R.validate(seed, e, el).ok); });
@@ -40,11 +40,17 @@ t("no health, diamond or shield drops exist in endless (timed shields/blasts onl
   for (const [, pid] of gg.rec.picks) if (pid.startsWith("d")) { const s = gg.spawnMap.get(+pid.slice(1)); assert(["up", "comet", "nova", "prism"].includes(R.dropFor(gg.seed, s))); }
   assert(kinds.has("sh") || kinds.has("bl"));
 });
-t("a blast soon after the previous one is allowed only if a Blast pickup was collected in between", () => {
-  const bl = base.picks.find(([, pid]) => pid.startsWith("bl")); assert(bl, "the honest run collected a Blast pickup");
-  const keepKill = (k) => k[2] === 0, kept = new Set(base.kills.filter(keepKill).map((k) => k[1]));
-  const mk = (withPick) => { const e = clone(base); e.kills = e.kills.filter(keepKill); e.picks = e.picks.filter(([, pid]) => (pid.startsWith("d") ? kept.has(+pid.slice(1)) : true) && (withPick || pid !== bl[1])); e.blasts = [bl[0] - 5, bl[0] + 1]; return e; };
-  const okRun = R.validate(seed, mk(true), el), badRun = R.validate(seed, mk(false), el);
-  assert(okRun.ok, okRun.reason); assert(!badRun.ok && /cooldown/.test(badRun.reason), badRun.reason);
+t("stored charges: two pickups allow three back-to-back blasts; a fourth is rejected", () => {
+  const ev = { v: R.VERSION, end: 100, kills: [], picks: [[31, "bl0"], [61, "bl1"]], hits: [98, 99, 100], blasts: [70, 71.2, 72.4] };
+  assert(R.validate(5, ev, 120).ok, R.validate(5, ev, 120).reason);
+  const four = { ...ev, blasts: [70, 71.2, 72.4, 73.6] }; assert.match(R.validate(5, four, 120).reason, /without a stored charge/);
+  const overlap = { ...ev, blasts: [70, 70.3] }; assert.match(R.validate(5, overlap, 120).reason, /faster than the blast wave/);
+});
+t("validator credits stage damage and power-up ×2 (honest boosted kills pass; impossible ones still fail)", () => {
+  const S = R.createSchedule(31).take(400), bw = S.find((s) => s.type.startsWith("bulwark") && s.t > 100); assert(bw, "found an armored enemy");
+  const hp = bw.hp, killT = bw.t + 0.4, hits = [killT + 5, killT + 6, killT + 7];
+  const run = (kills, picks) => ({ v: R.VERSION, end: killT + 7, kills, picks, hits, blasts: [] });
+  const plain = R.validate(31, run([[killT, bw.id, 0]], []), killT + 20);
+  assert(!plain.ok && /faster than the cannon/.test(plain.reason), "a " + hp + "-hit enemy in 0.4 s at ×1 is impossible: " + plain.reason);
 });
 console.log(`\n${pass} endless tests passed`);

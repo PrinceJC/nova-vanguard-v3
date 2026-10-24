@@ -69,7 +69,7 @@ function AvatarPreview({ id, w = 298, h: hh = 150 }) {
 function TouchControls({ input, game }) {
   const base = useRef(null), knob = useRef(null), id = useRef(null), origin = useRef({ x: 0, y: 0 });
   const [cd, setCd] = useState(0);
-  useEffect(() => { const t = setInterval(() => { const g = game.current; setCd(g ? Math.max(0, g.player.specialCd) : 0); }, 200); return () => clearInterval(t); }, []);
+  useEffect(() => { const t = setInterval(() => { const g = game.current; setCd(g ? g.player.blasts : 0); }, 150); return () => clearInterval(t); }, []);
   const start = (e) => {
     const t = e.changedTouches[0]; id.current = t.identifier;
     const r = e.currentTarget.getBoundingClientRect(), sc = r.width / 470;
@@ -94,7 +94,8 @@ function TouchControls({ input, game }) {
   const end = (e) => { for (const t of e.changedTouches) if (t.identifier === id.current) { id.current = null; input.current.joyX = 0; input.current.joyY = 0; if (knob.current) knob.current.style.transform = "translate(0,0)"; if (base.current) base.current.style.opacity = 0.45; } };
   return h(React.Fragment, null,
     h("div", { className: "joyzone", onTouchStart: start, onTouchMove: move, onTouchEnd: end, onTouchCancel: end }, h("div", { className: "joybase", ref: base }, h("div", { className: "joyknob", ref: knob }))),
-    h("button", { className: "specialbtn" + (cd <= 0 ? " ready" : ""), "aria-label": "Special blast", onTouchStart: (e) => { e.preventDefault(); input.current.specialPressed = true; } }, cd > 0 ? Math.ceil(cd) : "Blast"));
+    h("button", { className: "specialbtn" + (cd > 0 ? " ready" : ""), "aria-label": `Special blast, ${cd} of 3 stored`, onTouchStart: (e) => { e.preventDefault(); input.current.specialPressed = true; } },
+      h("span", { className: "bl" }, "Blast"), h("span", { className: "pips" }, [0, 1, 2].map((i) => h("i", { key: i, className: i < cd ? "on" : "" })))));
 }
 
 // ============================================================ sign-up / sign-in
@@ -689,9 +690,9 @@ function Landing({ signedIn, onPlay, onCreate }) {
         h("div", { className: "lcard" }, h("h3", null, "Power-ups"), h("ul", { className: "legendl" },
           h("li", null, h("i", { className: "ico star" }), h("span", null, h("b", null, "Weapon upgrade."), " Dropped by every elite. One shot → three → six. At max power each extra one is worth 1,000 points.")),
           h("li", null, h("i", { className: "ico hex" }), h("span", null, h("b", null, "Shield."), " Arrives about once a minute and absorbs one hit for six seconds. Lives can’t be restored, so guard your three.")),
-          h("li", null, h("i", { className: "ico wave" }), h("span", null, h("b", null, "Blast pickup."), " Appears every 20 seconds and makes your special blast ready instantly.")),
+          h("li", null, h("i", { className: "ico wave" }), h("span", null, h("b", null, "Blast charges."), " Store up to three. A Blast pickup arrives every 30 seconds and adds one; each blast uses one.")),
           h("li", null, h("i", { className: "ico comet" }), h("span", null, h("b", null, "Bullet power-ups."), " Comet, Nova and Prism rounds change your shots and their speed for 10 seconds.")),
-          h("li", null, h("i", { className: "ico wave" }), h("span", null, h("b", null, "Special blast."), " Charge, then release a wave that clears enemy bullets and damages everything it touches. Recharges in 14 seconds."))))),
+          h("li", null, h("i", { className: "ico wave" }), h("span", null, h("b", null, "Special blast."), " Charge, then release a wave that clears enemy bullets and damages everything it touches. Uses one stored charge."))))),
       h("div", { className: "ctaband" }, h("h2", null, "Ready to fly?"), cta(true))),
     h("footer", { className: "lfoot" }, h("span", null, "© 2026 Nova Vanguard"), h("nav", null, h("a", { href: "support.html" }, "Account support"), h("a", { href: "privacy.html" }, "Privacy"), h("a", { href: "terms.html" }, "Terms"))));
 }

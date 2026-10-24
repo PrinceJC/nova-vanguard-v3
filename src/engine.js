@@ -56,7 +56,7 @@ const ENEMIES = {
   dart:          { size: 44, r: 12, hp: 2, move: "rush", tele: 0.9, score: 220, wide: true },
 };
 const BULLET_POWERUPS = { comet: { name: "Comet rounds", speed: 1.6, big: 0, color: "#ffb8f0" }, nova: { name: "Nova stars", speed: 1.1, big: 9, color: "#ffe27a" }, prism: { name: "Prism shards", speed: 1.35, big: 4, color: "#9ffcff" } };
-const POWERUP_TIME = 10;
+const POWERUP_TIME = EndlessRules.POWERUP_TIME;
 
 // ============================================================ game creation
 function createGame(opts) {
@@ -65,7 +65,7 @@ function createGame(opts) {
   const g = {
     mode: endless ? "endless" : "campaign", level: endless ? 0 : L.n, L, lv: endless ? { pal: WORLDS[0].pal, bg: WORLDS[0].bg, name: "Endless", music: WORLDS[9].music, world: WORLDS[0] } : L,
     t: 0, state: endless ? "endless" : "intro", stateT: 0, avatar: opts.avatar || "lumi", muzzle: muzzleFor(opts.avatar || "lumi"), quality: opts.quality ?? 2,
-    player: { x: 150, y: H / 2, hp: PLAYER_HP, tier: endless ? 1 : clamp(opts.tier | 0, 1, 3), inv: 0, shield: 0, shieldMax: 6, fireCd: 0, specialCd: 0, charge: 0, pullX: 0, pullY: 0, pushX: 0, firing: false, dead: false, muzzle: 0, recoil: 0, tilt: 0, hurtT: 0, healT: 0, upT: 0, deadT: 0, bullet: null },
+    player: { x: 150, y: H / 2, hp: PLAYER_HP, tier: endless ? 1 : clamp(opts.tier | 0, 1, 3), inv: 0, shield: 0, shieldMax: 6, fireCd: 0, specialCd: 0, charge: 0, pullX: 0, pullY: 0, pushX: 0, firing: false, dead: false, muzzle: 0, recoil: 0, tilt: 0, hurtT: 0, healT: 0, upT: 0, deadT: 0, bullet: null, blasts: EndlessRules.BLAST_START },
     enemies: [], pbul: [], ebul: [], pickups: [], parts: [], hz: [], queue: [], obs: [], texts: [], blast: null,
     boss: null, bossesSpawned: 0, waves: endless ? [] : buildCampaignWaves(L.n), waveIdx: 0, waveT: 1.2, sinceLast: 0,
     score: 0, kills: 0, hitsTaken: 0, events: [], shake: 0, flash: 0, scroll: 0, hpSpawns: 0,
@@ -268,22 +268,25 @@ function updateObstacles(g, dt) {
 // ============================================================ player
 function playerFire(g) {
   const p = g.player, mx = p.x + g.muzzle[0], my = p.y + g.muzzle[1], pu = p.bullet && BULLET_POWERUPS[p.bullet.kind], sp = 820 * (pu ? pu.speed : 1);
-  for (const a of SHOT_PATTERNS[p.tier]) if (g.pbul.length < MAX_PBUL) g.pbul.push({ x: mx, y: my, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, dmg: 1, age: 0, kind: pu ? p.bullet.kind : null, big: pu ? pu.big : 0 });
+  // damage per bullet: stage bonus (×1 → ×5 at 20 min of active play) × 2 while a bullet power-up is active
+  const dmg = EndlessRules.damageMult(g.t) * (pu ? EndlessRules.POWERUP_DMG : 1);
+  for (const a of SHOT_PATTERNS[p.tier]) if (g.pbul.length < MAX_PBUL) g.pbul.push({ x: mx, y: my, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, dmg, age: 0, kind: pu ? p.bullet.kind : null, big: pu ? pu.big : 0 });
   p.muzzle = 0.06; p.recoil = 2.5;
   ev(g, "sfx", { name: "shoot" });
 }
 
+// The special blast uses stored charges (start 1, max 3). Each Blast pickup adds one; there is no automatic recharge.
 function special(g) {
   const p = g.player;
-  if (p.specialCd > 0 || p.dead || p.charge > 0 || g.blast) return false;
-  p.specialCd = SPECIAL_CD; p.charge = BLAST_CHARGE;
+  if (p.blasts < 1 || p.dead || p.charge > 0 || g.blast) return false;
+  p.blasts--; p.charge = BLAST_CHARGE;
+  if (g.mode === "endless") g.rec.blasts.push(r3(g.t));   // recorded when the charge is spent (ranked validation tracks charges)
   ev(g, "sfx", { name: "charge" });
   return true;
 }
 function releaseBlast(g) {
   const p = g.player;
   g.blast = { x: p.x + g.muzzle[0] - 10, y: p.y + g.muzzle[1], r: 0, hitE: new Set(), hitO: new Set(), bossHit: false, partsHit: new Set() };
-  if (g.mode === "endless") g.rec.blasts.push(r3(g.t));
   g.shake = Math.max(g.shake, 0.35); g.flash = Math.max(g.flash, 0.18);
   ev(g, "sfx", { name: "special" });
 }
@@ -382,6 +385,8 @@ function updateGame(g, dt, input) {
   const p = g.player;
 
   if (g.mode === "campaign") updateCampaignFlow(g, dt); else updateEndlessFlow(g, dt);
+  const dm = EndlessRules.damageMult(g.t);   // announce each damage step (5 / 10 / 15 / 20 min)
+  if (dm !== (g.dmgStage || 1)) { g.dmgStage = dm; if (!p.dead) { p.upT = 0.9; floatText(g, W / 2, 190, `Damage ×${dm}!`, "#ffd34f", 30); ev(g, "sfx", { name: "powerup" }); } }
   if (g.state === "dead") { p.deadT += dt; if (g.stateT > 1.8 && !g.overSent) { g.overSent = true; if (g.mode === "campaign") ev(g, "gameOver", {}); } }
 
   if (g.queue.length) for (let i = g.queue.length - 1; i >= 0; i--) {
@@ -454,7 +459,7 @@ function updateTimedPickups(g) {
   g.tp = g.tp || { sh: 0, bl: 0 };
   const S = EndlessRules, T = g.tp;
   while (30 + T.sh * S.SHIELD_EVERY <= g.t) { const k = T.sh++; g.pickups.push({ x: W + 20, y: 40 + (0.25 + (k % 3) * 0.25) * (H - 80), kind: "shield", t: 0, vy: 0, pid: g.mode === "endless" ? "sh" + k : undefined }); }
-  while (15 + T.bl * S.BLAST_EVERY <= g.t) { const k = T.bl++; g.pickups.push({ x: W + 20, y: 40 + (0.3 + (k % 4) * 0.13) * (H - 80), kind: "blast", t: 0, vy: 0, pid: g.mode === "endless" ? "bl" + k : undefined }); }
+  while (S.BLAST_FIRST + T.bl * S.BLAST_EVERY <= g.t) { const k = T.bl++; g.pickups.push({ x: W + 20, y: 40 + (0.3 + (k % 4) * 0.13) * (H - 80), kind: "blast", t: 0, vy: 0, pid: g.mode === "endless" ? "bl" + k : undefined }); }
 }
 function updateCampaignFlow(g, dt) {
   const p = g.player;
@@ -505,8 +510,8 @@ function collect(g, k) {
   const pts = g.mode === "endless" ? EndlessRules.PICK_POINTS : { score: 250, big: 1000, hp: 50, shield: 0, up: 0 };
   if (k.kind === "hp") { const full = p.hp >= PLAYER_HP; p.hp = Math.min(PLAYER_HP, p.hp + 1); p.healT = 0.6; floatText(g, p.x, p.y - 40, full ? "Health full" : "+1 health", "#6fe04a"); }
   else if (k.kind === "shield") { p.shield = p.shieldMax; floatText(g, p.x, p.y - 40, "Shield 6s", "#9ff7c4"); }
-  else if (k.kind === "blast") { p.specialCd = 0; p.upT = 0.5; floatText(g, p.x + 40, p.y - 60, "Blast ready!", "#7ff3ff", 22); }
-  else if (BULLET_POWERUPS[k.kind]) { const pu = BULLET_POWERUPS[k.kind]; p.bullet = { kind: k.kind, t: POWERUP_TIME }; p.upT = 0.6; floatText(g, p.x + 40, p.y - 60, `${pu.name}! ${POWERUP_TIME}s`, pu.color, 22); }
+  else if (k.kind === "blast") { const max = EndlessRules.BLAST_MAX; if (p.blasts < max) { p.blasts++; p.upT = 0.5; floatText(g, p.x + 40, p.y - 60, `Blast +1  (${p.blasts}/${max})`, "#7ff3ff", 22); } else floatText(g, p.x + 40, p.y - 60, `Blasts full (${max}/${max})`, "#7ff3ff", 18); }
+  else if (BULLET_POWERUPS[k.kind]) { const pu = BULLET_POWERUPS[k.kind]; p.bullet = { kind: k.kind, t: POWERUP_TIME }; p.upT = 0.6; floatText(g, p.x + 40, p.y - 60, `${pu.name}! ×2 damage ${POWERUP_TIME}s`, pu.color, 22); }
   else if (k.kind === "up") {
     p.upT = 0.9;
     if (p.tier < 3) { p.tier++; floatText(g, p.x + 40, p.y - 60, "Weapon Upgraded!", "#ffd34f", 26); floatText(g, p.x + 40, p.y - 34, `${EndlessRules.TIER_SHOTS[p.tier]} shots`, "#ffe08a"); }

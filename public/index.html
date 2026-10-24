@@ -265,6 +265,13 @@ body.game { position: fixed; inset: 0; overflow: hidden; }
 .avtile { font-size: 12px; padding: 3px 1px; }
 .avtile .portrait { width: 36px; height: 36px; }
 .avtile .cat { font-size: 10px; }
+
+.specialbtn { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
+.specialbtn .bl { font-size: 20px; line-height: 1; }
+.specialbtn .pips { display: flex; gap: 5px; }
+.specialbtn .pips i { width: 11px; height: 11px; border-radius: 50%; background: rgba(10,30,40,.55); border: 2px solid rgba(10,30,40,.7); }
+.specialbtn .pips i.on { background: #ffffff; border-color: #0f2228; }
+.specialbtn:not(.ready) { opacity: .7; }
 </style>
 </head>
 <body>
@@ -284,12 +291,14 @@ const SPRITE_SVG = {"player": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox
   if (typeof module === "object" && module.exports) module.exports = m; else root.EndlessRules = m;
 })(typeof self !== "undefined" ? self : this, function () {
   "use strict";
-  const VERSION = 7;
+  const VERSION = 9;
   const PLAYER_HP = 3, INV_MIN = 0.9, BLAST_CD = 14, FIRE_INT = 0.15, BLAST_DMG = 10;
   const PICKUP_LIFE = 30, ENTRY_MIN = 0.15, MAX_LIFE = 45;
   const TIER_SHOTS = [0, 1, 3, 6], TIER_DPS = TIER_SHOTS.map((n) => n / FIRE_INT), MAX_TIER_BONUS = 1000;
-  const POINTS_PER_TIER = 5, SHIELD_EVERY = 60, SHIELD_FIRST = 30, BLAST_EVERY = 15, BLAST_FIRST = 15;
+  const POINTS_PER_TIER = 5, SHIELD_EVERY = 60, SHIELD_FIRST = 30, BLAST_EVERY = 30, BLAST_FIRST = 30;
+  const BLAST_START = 1, BLAST_MAX = 3, BLAST_GAP = 1.0;   // stored blast charges: start with 1, hold up to 3, pickups add 1
   const MAX_ON_SCREEN = 50, MAX_STAGE = 4, HIT_CAP = { n: 5, f: 10, a: 15 };   // stages stop growing at 20 min
+  const POWERUP_TIME = 10, POWERUP_DMG = 2;   // bullet power-ups (Comet / Nova / Prism) last 10 s and double damage
   const UPGRADES = [];   // weapon upgrades come only from defeated elites
   const PICK_POINTS = {};   // no point pickups (diamonds removed); max-tier weapon pickups give MAX_TIER_BONUS
   const POWERUPS = ["comet", "nova", "prism"];
@@ -329,6 +338,8 @@ const SPRITE_SVG = {"player": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox
   function pow15(s) { let v = 1; for (let i = 0; i < s; i++) v *= 1.5; return v; }     // exact (3^s / 2^s)
   function pow125(s) { let v = 1; for (let i = 0; i < s; i++) v *= 1.25; return v; }   // exact (5^s / 4^s)
   function countMult(t) { return 1 << capStage(t); }
+  // player damage per bullet: ×1, then ×2 at 5 min, ×3 at 10, ×4 at 15, ×5 at 20 (stops growing with the stages)
+  function damageMult(t) { return 1 + capStage(t); }
   function speedAt(t) { const s = capStage(t), f = stageOf(t) >= MAX_STAGE ? 1 : (t - s * 300) / 300; return pow125(s) * (1 + 0.2 * f); }
   function hitsFor(type, t, elite) {
     const st = STATS[type], base = st[0] * (elite ? 2 : 1);
@@ -477,26 +488,35 @@ const SPRITE_SVG = {"player": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox
       if (t < kt - 0.02 || t > kt + PICKUP_LIFE) return fail("An item was collected at an impossible time.");
       if (kind === "up") { if (upTimes.length >= 2) score += MAX_TIER_BONUS; upTimes.push(t); }
     }
-    // the special blast recharges in 14 s, or instantly when a Blast pickup is collected
-    for (let i = 1; i < blasts.length; i++) if (blasts[i] - blasts[i - 1] < BLAST_CD - 0.05 && !blastPicks.some((p) => p > blasts[i - 1] - 0.5 && p <= blasts[i] + 0.05)) return fail("The special blast was used faster than its cooldown allows.");
+    // stored blast charges: 1 at the start, +1 per Blast pickup (max 3), −1 per blast; waves can't overlap
+    { const evs = blastPicks.map((t) => [t, 1]).concat(blasts.map((t) => [t, -1])).sort((a, b) => a[0] - b[0] || b[1] - a[1]);
+      let charges = BLAST_START, last = -9;
+      for (const [t, d] of evs) {
+        if (d > 0) { charges = Math.min(BLAST_MAX, charges + 1); continue; }
+        if (charges < 1) return fail("A special blast was used without a stored charge.");
+        if (t - last < BLAST_GAP - 0.05) return fail("Special blasts were fired faster than the blast wave allows.");
+        charges--; last = t;
+      } }
     const tierAt = (t) => Math.min(3, 1 + upTimes.filter((u) => u <= t).length);
-    const capUntil = (T) => {
-      let total = 0, prev = 0, tier = 1;
-      for (const u of upTimes) { if (u >= T) break; total += (u - prev) * TIER_DPS[tier]; prev = u; tier = Math.min(3, tier + 1); }
-      return total + (T - prev) * TIER_DPS[tier];
-    };
+    // power-up windows: each collected Comet/Nova/Prism doubles damage for 10 s from collection (re-collecting restarts the timer)
+    const puStarts = []; for (const [t, pid] of picks) { const m2 = /^d(\d+)$/.exec(pid); if (m2 && POWERUPS.includes(drops.get(+m2[1]))) puStarts.push(t); }
+    const puAt = (t) => puStarts.some((p) => t >= p && t < p + POWERUP_TIME);
+    const rateAt = (t) => TIER_DPS[tierAt(t)] * damageMult(t) * (puAt(t) ? POWERUP_DMG : 1);
+    const bps = [...new Set([0, ...upTimes, ...puStarts, ...puStarts.map((p) => p + POWERUP_TIME), 300, 600, 900, 1200])].sort((a, b) => a - b);
+    const capUntil = (T) => { let total = 0; for (let i = 0; i < bps.length && bps[i] < T; i++) { const a = bps[i], b = Math.min(T, i + 1 < bps.length ? bps[i + 1] : T); if (b > a) total += (b - a) * rateAt(a); } return total; };
+    const maxRate = (a, b) => { let m = rateAt(a); for (const p of bps) if (p > a && p <= b) m = Math.max(m, rateAt(p)); return m; };
     let dmgUsed = 0, elites = 0;
     for (const [t, id, cause] of kills) {
       const s = byId.get(id);
       if (t < s.t + ENTRY_MIN - 0.02) return fail("An enemy was defeated before it entered the screen.");
       if (t > s.t + MAX_LIFE) return fail("An enemy was defeated after it would have left the screen.");
-      const bl = blasts.filter((b) => b >= s.t - 1.2 && b <= t);
+      const bl = blasts.filter((b) => b >= s.t - 1.5 && b <= t);
       let eff = s.hp + s.shield - bl.length * BLAST_DMG;
       if (cause === 1) {
-        if (!blasts.some((b) => t >= b && t <= b + 1.2)) return fail("An enemy was credited to a special blast that didn’t happen.");
+        if (!blasts.some((b) => t >= b && t <= b + 1.5)) return fail("An enemy was credited to a special blast that didn’t happen.");
       } else {
         eff = Math.max(0, eff);
-        const tier = tierAt(t), need = Math.max(0, eff - TIER_SHOTS[tier]) / TIER_DPS[tier], have = t - s.t;
+        const mr = maxRate(s.t, t), need = Math.max(0, eff - mr * FIRE_INT) / mr, have = t - s.t;
         if (have + 0.06 < need) return fail("An enemy was defeated faster than the cannon can fire.");
         dmgUsed += eff;
         if (dmgUsed > capUntil(t) * 1.05 + 8) return fail("More damage was dealt than the cannon can produce.");
@@ -515,9 +535,9 @@ const SPRITE_SVG = {"player": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox
     return { ok: true, score: Math.round(score), kills: kills.length, elites, survival: end };
   }
 
-  return { VERSION, MAX_ON_SCREEN, HIT_CAP, MAX_STAGE, STATS, POOL, POWERUPS, UPGRADES, TIER_SHOTS, FIRE_INT, MAX_TIER_BONUS, PLAYER_HP, BLAST_CD, BLAST_DMG, PICKUP_LIFE, PICK_POINTS,
+  return { VERSION, BLAST_START, BLAST_MAX, BLAST_FIRST, MAX_ON_SCREEN, HIT_CAP, MAX_STAGE, STATS, POOL, POWERUPS, UPGRADES, TIER_SHOTS, FIRE_INT, MAX_TIER_BONUS, PLAYER_HP, BLAST_CD, BLAST_DMG, PICKUP_LIFE, PICK_POINTS,
     WAVE_EVERY, STEP_SECONDS, SHIELD_EVERY, BLAST_EVERY, rng, hash01, createSchedule, waveSpawns, timedPickupsUntil, newDropState, dropFor, milestonePoints, validate,
-    spawnGap, speedAt, threatLevel, minuteMult, stageOf, capStage, countMult, hitsFor, pointsFor, pow15, pow125 };
+    spawnGap, speedAt, threatLevel, minuteMult, stageOf, capStage, countMult, damageMult, POWERUP_TIME, POWERUP_DMG, hitsFor, pointsFor, pow15, pow125 };
 });
 
 /* src/avatars.js */
@@ -1009,7 +1029,7 @@ const ENEMIES = {
   dart:          { size: 44, r: 12, hp: 2, move: "rush", tele: 0.9, score: 220, wide: true },
 };
 const BULLET_POWERUPS = { comet: { name: "Comet rounds", speed: 1.6, big: 0, color: "#ffb8f0" }, nova: { name: "Nova stars", speed: 1.1, big: 9, color: "#ffe27a" }, prism: { name: "Prism shards", speed: 1.35, big: 4, color: "#9ffcff" } };
-const POWERUP_TIME = 10;
+const POWERUP_TIME = EndlessRules.POWERUP_TIME;
 
 // ============================================================ game creation
 function createGame(opts) {
@@ -1018,7 +1038,7 @@ function createGame(opts) {
   const g = {
     mode: endless ? "endless" : "campaign", level: endless ? 0 : L.n, L, lv: endless ? { pal: WORLDS[0].pal, bg: WORLDS[0].bg, name: "Endless", music: WORLDS[9].music, world: WORLDS[0] } : L,
     t: 0, state: endless ? "endless" : "intro", stateT: 0, avatar: opts.avatar || "lumi", muzzle: muzzleFor(opts.avatar || "lumi"), quality: opts.quality ?? 2,
-    player: { x: 150, y: H / 2, hp: PLAYER_HP, tier: endless ? 1 : clamp(opts.tier | 0, 1, 3), inv: 0, shield: 0, shieldMax: 6, fireCd: 0, specialCd: 0, charge: 0, pullX: 0, pullY: 0, pushX: 0, firing: false, dead: false, muzzle: 0, recoil: 0, tilt: 0, hurtT: 0, healT: 0, upT: 0, deadT: 0, bullet: null },
+    player: { x: 150, y: H / 2, hp: PLAYER_HP, tier: endless ? 1 : clamp(opts.tier | 0, 1, 3), inv: 0, shield: 0, shieldMax: 6, fireCd: 0, specialCd: 0, charge: 0, pullX: 0, pullY: 0, pushX: 0, firing: false, dead: false, muzzle: 0, recoil: 0, tilt: 0, hurtT: 0, healT: 0, upT: 0, deadT: 0, bullet: null, blasts: EndlessRules.BLAST_START },
     enemies: [], pbul: [], ebul: [], pickups: [], parts: [], hz: [], queue: [], obs: [], texts: [], blast: null,
     boss: null, bossesSpawned: 0, waves: endless ? [] : buildCampaignWaves(L.n), waveIdx: 0, waveT: 1.2, sinceLast: 0,
     score: 0, kills: 0, hitsTaken: 0, events: [], shake: 0, flash: 0, scroll: 0, hpSpawns: 0,
@@ -1221,22 +1241,25 @@ function updateObstacles(g, dt) {
 // ============================================================ player
 function playerFire(g) {
   const p = g.player, mx = p.x + g.muzzle[0], my = p.y + g.muzzle[1], pu = p.bullet && BULLET_POWERUPS[p.bullet.kind], sp = 820 * (pu ? pu.speed : 1);
-  for (const a of SHOT_PATTERNS[p.tier]) if (g.pbul.length < MAX_PBUL) g.pbul.push({ x: mx, y: my, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, dmg: 1, age: 0, kind: pu ? p.bullet.kind : null, big: pu ? pu.big : 0 });
+  // damage per bullet: stage bonus (×1 → ×5 at 20 min of active play) × 2 while a bullet power-up is active
+  const dmg = EndlessRules.damageMult(g.t) * (pu ? EndlessRules.POWERUP_DMG : 1);
+  for (const a of SHOT_PATTERNS[p.tier]) if (g.pbul.length < MAX_PBUL) g.pbul.push({ x: mx, y: my, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, dmg, age: 0, kind: pu ? p.bullet.kind : null, big: pu ? pu.big : 0 });
   p.muzzle = 0.06; p.recoil = 2.5;
   ev(g, "sfx", { name: "shoot" });
 }
 
+// The special blast uses stored charges (start 1, max 3). Each Blast pickup adds one; there is no automatic recharge.
 function special(g) {
   const p = g.player;
-  if (p.specialCd > 0 || p.dead || p.charge > 0 || g.blast) return false;
-  p.specialCd = SPECIAL_CD; p.charge = BLAST_CHARGE;
+  if (p.blasts < 1 || p.dead || p.charge > 0 || g.blast) return false;
+  p.blasts--; p.charge = BLAST_CHARGE;
+  if (g.mode === "endless") g.rec.blasts.push(r3(g.t));   // recorded when the charge is spent (ranked validation tracks charges)
   ev(g, "sfx", { name: "charge" });
   return true;
 }
 function releaseBlast(g) {
   const p = g.player;
   g.blast = { x: p.x + g.muzzle[0] - 10, y: p.y + g.muzzle[1], r: 0, hitE: new Set(), hitO: new Set(), bossHit: false, partsHit: new Set() };
-  if (g.mode === "endless") g.rec.blasts.push(r3(g.t));
   g.shake = Math.max(g.shake, 0.35); g.flash = Math.max(g.flash, 0.18);
   ev(g, "sfx", { name: "special" });
 }
@@ -1335,6 +1358,8 @@ function updateGame(g, dt, input) {
   const p = g.player;
 
   if (g.mode === "campaign") updateCampaignFlow(g, dt); else updateEndlessFlow(g, dt);
+  const dm = EndlessRules.damageMult(g.t);   // announce each damage step (5 / 10 / 15 / 20 min)
+  if (dm !== (g.dmgStage || 1)) { g.dmgStage = dm; if (!p.dead) { p.upT = 0.9; floatText(g, W / 2, 190, `Damage ×${dm}!`, "#ffd34f", 30); ev(g, "sfx", { name: "powerup" }); } }
   if (g.state === "dead") { p.deadT += dt; if (g.stateT > 1.8 && !g.overSent) { g.overSent = true; if (g.mode === "campaign") ev(g, "gameOver", {}); } }
 
   if (g.queue.length) for (let i = g.queue.length - 1; i >= 0; i--) {
@@ -1407,7 +1432,7 @@ function updateTimedPickups(g) {
   g.tp = g.tp || { sh: 0, bl: 0 };
   const S = EndlessRules, T = g.tp;
   while (30 + T.sh * S.SHIELD_EVERY <= g.t) { const k = T.sh++; g.pickups.push({ x: W + 20, y: 40 + (0.25 + (k % 3) * 0.25) * (H - 80), kind: "shield", t: 0, vy: 0, pid: g.mode === "endless" ? "sh" + k : undefined }); }
-  while (15 + T.bl * S.BLAST_EVERY <= g.t) { const k = T.bl++; g.pickups.push({ x: W + 20, y: 40 + (0.3 + (k % 4) * 0.13) * (H - 80), kind: "blast", t: 0, vy: 0, pid: g.mode === "endless" ? "bl" + k : undefined }); }
+  while (S.BLAST_FIRST + T.bl * S.BLAST_EVERY <= g.t) { const k = T.bl++; g.pickups.push({ x: W + 20, y: 40 + (0.3 + (k % 4) * 0.13) * (H - 80), kind: "blast", t: 0, vy: 0, pid: g.mode === "endless" ? "bl" + k : undefined }); }
 }
 function updateCampaignFlow(g, dt) {
   const p = g.player;
@@ -1458,8 +1483,8 @@ function collect(g, k) {
   const pts = g.mode === "endless" ? EndlessRules.PICK_POINTS : { score: 250, big: 1000, hp: 50, shield: 0, up: 0 };
   if (k.kind === "hp") { const full = p.hp >= PLAYER_HP; p.hp = Math.min(PLAYER_HP, p.hp + 1); p.healT = 0.6; floatText(g, p.x, p.y - 40, full ? "Health full" : "+1 health", "#6fe04a"); }
   else if (k.kind === "shield") { p.shield = p.shieldMax; floatText(g, p.x, p.y - 40, "Shield 6s", "#9ff7c4"); }
-  else if (k.kind === "blast") { p.specialCd = 0; p.upT = 0.5; floatText(g, p.x + 40, p.y - 60, "Blast ready!", "#7ff3ff", 22); }
-  else if (BULLET_POWERUPS[k.kind]) { const pu = BULLET_POWERUPS[k.kind]; p.bullet = { kind: k.kind, t: POWERUP_TIME }; p.upT = 0.6; floatText(g, p.x + 40, p.y - 60, `${pu.name}! ${POWERUP_TIME}s`, pu.color, 22); }
+  else if (k.kind === "blast") { const max = EndlessRules.BLAST_MAX; if (p.blasts < max) { p.blasts++; p.upT = 0.5; floatText(g, p.x + 40, p.y - 60, `Blast +1  (${p.blasts}/${max})`, "#7ff3ff", 22); } else floatText(g, p.x + 40, p.y - 60, `Blasts full (${max}/${max})`, "#7ff3ff", 18); }
+  else if (BULLET_POWERUPS[k.kind]) { const pu = BULLET_POWERUPS[k.kind]; p.bullet = { kind: k.kind, t: POWERUP_TIME }; p.upT = 0.6; floatText(g, p.x + 40, p.y - 60, `${pu.name}! ×2 damage ${POWERUP_TIME}s`, pu.color, 22); }
   else if (k.kind === "up") {
     p.upT = 0.9;
     if (p.tier < 3) { p.tier++; floatText(g, p.x + 40, p.y - 60, "Weapon Upgraded!", "#ffd34f", 26); floatText(g, p.x + 40, p.y - 34, `${EndlessRules.TIER_SHOTS[p.tier]} shots`, "#ffe08a"); }
@@ -2642,19 +2667,21 @@ function drawHUD(ctx, g, set, now) {
   txt(ctx, "Weapon", 150, 31, 15, "#c9bde8");
   const shots = EndlessRules.TIER_SHOTS[p.tier];
   for (let i = 0; i < 3; i++) { ctx.fillStyle = i < p.tier ? "#5ef2f2" : "#2b2148"; ctx.strokeStyle = "#1a1030"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(220 + i * 16, 20); ctx.lineTo(231 + i * 16, 26); ctx.lineTo(220 + i * 16, 32); ctx.closePath(); ctx.fill(); ctx.stroke(); }
-  txt(ctx, shots + (shots === 1 ? " shot" : " shots") + (p.tier === 3 ? " (max)" : ""), 150, 50, 13, p.tier === 3 ? "#ffd34f" : "#a8fbff");
-  // special meter
-  const ready = p.specialCd <= 0 && p.charge <= 0 && !g.blast, frac = 1 - Math.max(0, p.specialCd) / SPECIAL_CD, sx = 316, sy = 27;
+  const dmgNow = EndlessRules.damageMult(g.t) * (p.bullet ? EndlessRules.POWERUP_DMG : 1);
+  txt(ctx, shots + (shots === 1 ? " shot" : " shots") + (p.tier === 3 ? " (max)" : "") + (dmgNow > 1 ? `  ·  Damage ×${dmgNow}` : ""), 150, 50, 13, dmgNow > 1 ? "#ffd34f" : p.tier === 3 ? "#ffd34f" : "#a8fbff");
+  // special blast: stored charges (●●○), max 3
+  const max = EndlessRules.BLAST_MAX, ready = p.blasts > 0 && p.charge <= 0 && !g.blast, sx = 316, sy = 27;
   if (ready) drawGlow(ctx, "#5ef2f2", sx, sy, 30, 0.45 + 0.3 * Math.sin(now / 200));
   ctx.fillStyle = "#1a1030"; ctx.beginPath(); ctx.arc(sx, sy, 17, 0, TAU); ctx.fill();
-  ctx.strokeStyle = ready ? "#5ef2f2" : "#3f8f9a"; ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(sx, sy, 14, -Math.PI / 2, -Math.PI / 2 + TAU * frac); ctx.stroke();
-  txt(ctx, set.touch ? "" : "E", sx, sy + 6, 16, ready ? "#ffffff" : "#8aa", "center");
-  txt(ctx, p.charge > 0 ? "Charging…" : ready ? "Blast ready" : Math.ceil(p.specialCd) + "s", sx + 24, sy + 6, 15, ready || p.charge > 0 ? "#5ef2f2" : "#7a8aa0");
+  ctx.strokeStyle = ready ? "#5ef2f2" : "#3f8f9a"; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(sx, sy, 14, 0, TAU); ctx.stroke();
+  txt(ctx, set.touch ? String(p.blasts) : "E", sx, sy + 6, 16, ready ? "#ffffff" : "#8aa", "center");
+  for (let i = 0; i < max; i++) { ctx.fillStyle = i < p.blasts ? "#5ef2f2" : "#22304a"; ctx.strokeStyle = "#0e1a2a"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(sx + 30 + i * 15, sy - 4, 5.5, 0, TAU); ctx.fill(); ctx.stroke(); }
+  txt(ctx, p.charge > 0 ? "Charging…" : p.blasts > 0 ? `Blast ${p.blasts}/${max}` : "No blasts", sx + 24, sy + 15, 12, ready || p.charge > 0 ? "#5ef2f2" : "#7a8aa0");
   let chipX = 440;
   const chip = (label, col, frac) => { ctx.fillStyle = "rgba(18,12,40,0.8)"; roundRect(ctx, chipX, 14, 128, 26, 13); ctx.fill(); ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.stroke();
     ctx.strokeStyle = col; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(chipX + 13, 27, 7, -Math.PI / 2, -Math.PI / 2 + TAU * frac); ctx.stroke(); txt(ctx, label, chipX + 26, 32, 13, col); chipX += 136; };
   if (p.shield > 0) chip("Shield " + p.shield.toFixed(1) + "s", "#9ff7c4", p.shield / p.shieldMax);
-  if (p.bullet) { const pu = BULLET_POWERUPS[p.bullet.kind]; chip(pu.name.split(" ")[0] + " " + p.bullet.t.toFixed(1) + "s", pu.color, p.bullet.t / POWERUP_TIME); }
+  if (p.bullet) { const pu = BULLET_POWERUPS[p.bullet.kind]; chip(pu.name.split(" ")[0] + " ×2 " + p.bullet.t.toFixed(1) + "s", pu.color, p.bullet.t / POWERUP_TIME); }
   txt(ctx, g.score.toLocaleString(), W - 86, 36, 26, "#ffe08a", "right", 800);
   if (g.mode === "endless") {
     const wave = Math.floor(g.t / EndlessRules.WAVE_EVERY), nx = EndlessRules.WAVE_EVERY - (g.t % EndlessRules.WAVE_EVERY);
@@ -3087,7 +3114,7 @@ function AvatarPreview({ id, w = 298, h: hh = 150 }) {
 function TouchControls({ input, game }) {
   const base = useRef(null), knob = useRef(null), id = useRef(null), origin = useRef({ x: 0, y: 0 });
   const [cd, setCd] = useState(0);
-  useEffect(() => { const t = setInterval(() => { const g = game.current; setCd(g ? Math.max(0, g.player.specialCd) : 0); }, 200); return () => clearInterval(t); }, []);
+  useEffect(() => { const t = setInterval(() => { const g = game.current; setCd(g ? g.player.blasts : 0); }, 150); return () => clearInterval(t); }, []);
   const start = (e) => {
     const t = e.changedTouches[0]; id.current = t.identifier;
     const r = e.currentTarget.getBoundingClientRect(), sc = r.width / 470;
@@ -3112,7 +3139,8 @@ function TouchControls({ input, game }) {
   const end = (e) => { for (const t of e.changedTouches) if (t.identifier === id.current) { id.current = null; input.current.joyX = 0; input.current.joyY = 0; if (knob.current) knob.current.style.transform = "translate(0,0)"; if (base.current) base.current.style.opacity = 0.45; } };
   return h(React.Fragment, null,
     h("div", { className: "joyzone", onTouchStart: start, onTouchMove: move, onTouchEnd: end, onTouchCancel: end }, h("div", { className: "joybase", ref: base }, h("div", { className: "joyknob", ref: knob }))),
-    h("button", { className: "specialbtn" + (cd <= 0 ? " ready" : ""), "aria-label": "Special blast", onTouchStart: (e) => { e.preventDefault(); input.current.specialPressed = true; } }, cd > 0 ? Math.ceil(cd) : "Blast"));
+    h("button", { className: "specialbtn" + (cd > 0 ? " ready" : ""), "aria-label": `Special blast, ${cd} of 3 stored`, onTouchStart: (e) => { e.preventDefault(); input.current.specialPressed = true; } },
+      h("span", { className: "bl" }, "Blast"), h("span", { className: "pips" }, [0, 1, 2].map((i) => h("i", { key: i, className: i < cd ? "on" : "" })))));
 }
 
 // ============================================================ sign-up / sign-in
@@ -3707,9 +3735,9 @@ function Landing({ signedIn, onPlay, onCreate }) {
         h("div", { className: "lcard" }, h("h3", null, "Power-ups"), h("ul", { className: "legendl" },
           h("li", null, h("i", { className: "ico star" }), h("span", null, h("b", null, "Weapon upgrade."), " Dropped by every elite. One shot → three → six. At max power each extra one is worth 1,000 points.")),
           h("li", null, h("i", { className: "ico hex" }), h("span", null, h("b", null, "Shield."), " Arrives about once a minute and absorbs one hit for six seconds. Lives can’t be restored, so guard your three.")),
-          h("li", null, h("i", { className: "ico wave" }), h("span", null, h("b", null, "Blast pickup."), " Appears every 20 seconds and makes your special blast ready instantly.")),
+          h("li", null, h("i", { className: "ico wave" }), h("span", null, h("b", null, "Blast charges."), " Store up to three. A Blast pickup arrives every 30 seconds and adds one; each blast uses one.")),
           h("li", null, h("i", { className: "ico comet" }), h("span", null, h("b", null, "Bullet power-ups."), " Comet, Nova and Prism rounds change your shots and their speed for 10 seconds.")),
-          h("li", null, h("i", { className: "ico wave" }), h("span", null, h("b", null, "Special blast."), " Charge, then release a wave that clears enemy bullets and damages everything it touches. Recharges in 14 seconds."))))),
+          h("li", null, h("i", { className: "ico wave" }), h("span", null, h("b", null, "Special blast."), " Charge, then release a wave that clears enemy bullets and damages everything it touches. Uses one stored charge."))))),
       h("div", { className: "ctaband" }, h("h2", null, "Ready to fly?"), cta(true))),
     h("footer", { className: "lfoot" }, h("span", null, "© 2026 Nova Vanguard"), h("nav", null, h("a", { href: "support.html" }, "Account support"), h("a", { href: "privacy.html" }, "Privacy"), h("a", { href: "terms.html" }, "Terms"))));
 }

@@ -75,12 +75,20 @@ t("fast darts warn for 0.9 s before rushing, and the rush is dodgeable", () => {
 });
 function W_() { return 960; }
 t("endless still has no enemy projectiles with the new families", () => { const h = createGame({ mode: "endless", seed: 11, god: true }); for (let i = 0; i < 60 * 300; i++) { updateGame(h, 1 / 60, {}); if (h.ebul.length) throw new Error("projectile at " + h.t); } });
+t("player damage: ×1 → ×2 at 5 min → ×3 → ×4 → ×5 at 20 min (then stops); power-ups double it", () => {
+  const R = globalThis.EndlessRules; assert.deepStrictEqual([0, 299, 300, 600, 900, 1200, 2400].map(R.damageMult), [1, 1, 2, 3, 4, 5, 5]);
+  for (const mode of [{ mode: "endless", seed: 2, god: true }, { mode: "campaign", level: 1, god: true }]) {
+    const h = createGame(mode); h.state = mode.mode === "endless" ? "endless" : "waves"; h.waveIdx = 999;
+    for (const [t, d] of [[10, 1], [310, 2], [610, 3], [1300, 5]]) { h.t = t; h.player.bullet = null; assert.strictEqual(fire(h)[0].dmg, d, mode.mode + " at " + t); h.player.bullet = { kind: "nova", t: 9 }; assert.strictEqual(fire(h)[0].dmg, d * 2, mode.mode + " boosted at " + t); }
+  }
+  const h = createGame({ mode: "campaign", level: 1 }); h.t = 320; const e = globalThis.__spawn(h, "bulwark1", 270, 600); e.t = 1; const hp0 = e.hp; globalThis.__damage(h, e, 2, false, 0); assert.strictEqual(hp0 - e.hp, 2, "a ×2 bullet removes two hits of health");
+});
 t("bullet power-ups change bullet look and speed for 10 s, then expire", () => {
   const h = createGame({ mode: "campaign", level: 2, tier: 1, god: true }); h.state = "waves"; h.waveIdx = 99;
   const base = fire(h)[0].vx;
   for (const [kind, mult] of [["comet", 1.6], ["nova", 1.1], ["prism", 1.35]]) {
     h.pickups = [{ x: h.player.x, y: h.player.y, kind, t: 0, vy: 0 }]; updateGame(h, 0.001, {}); const b = fire(h)[0];
-    assert.strictEqual(b.kind, kind); assert(Math.abs(b.vx / base - mult) < 0.01, kind); assert.strictEqual(b.dmg, 1, "damage unchanged (ranked fairness)"); }
+    assert.strictEqual(b.kind, kind); assert(Math.abs(b.vx / base - mult) < 0.01, kind); assert.strictEqual(b.dmg, 2, "power-up doubles damage"); }
   for (let i = 0; i < 60 * 11; i++) updateGame(h, 1 / 60, {}); assert.strictEqual(h.player.bullet, null); assert.strictEqual(fire(h)[0].kind, null);
 });
 t("bullet power-ups still drop occasionally", () => { const h = createGame({ mode: "campaign", level: 5, tier: 1, god: true }); for (let i = 0; i < 800; i++) { const e = globalThis.__spawn(h, "scout_drone", 270, 600); e.t = 1; globalThis.__damage(h, e, 99, true); } assert(h.pickups.some((x) => ["comet", "nova", "prism"].includes(x.kind))); });
@@ -97,14 +105,23 @@ t("durability by active minute: basic 1→5 hits (capped), tougher tiers scale f
   h.t = 30; const old = globalThis.__spawn(h, "scout_drone", 270, 600); h.t = 200; globalThis.__spawn(h, "scout_drone", 300, 600); assert.strictEqual(old.hp, 1, "enemies already on screen keep their health");
   assert.strictEqual(createGame({ mode: "campaign", level: 2 }).t, 0, "durability timer resets each level");
 });
-t("timed pickups: Blast every 15 s, shield every 60 s, in both modes", () => {
+t("timed pickups: Blast every 30 s, shield every 60 s, in both modes", () => {
   for (const mode of [{ mode: "endless", seed: 8, god: true }, { mode: "campaign", level: 2, god: true }]) {
     const h = createGame(mode);
     const seen = []; for (let i = 0; i < 60 * 130; i++) { const before = h.pickups.length; updateGame(h, 1 / 60, {}); for (const k of h.pickups.slice(before)) if (k.kind === "blast" || k.kind === "shield") seen.push(k.kind[0] + Math.round(h.t)); if (h.state === "warning" || h.boss) break; }
     const b = seen.filter((x) => x[0] === "b").map((x) => +x.slice(1)), s = seen.filter((x) => x[0] === "s").map((x) => +x.slice(1));
-    assert.deepStrictEqual(b.slice(0, 4), [15, 30, 45, 60], mode.mode + " blast"); assert.deepStrictEqual(s.slice(0, 2), [30, 90], mode.mode + " shield");
+    assert.deepStrictEqual(b.slice(0, 4), [30, 60, 90, 120], mode.mode + " blast"); assert.deepStrictEqual(s.slice(0, 2), [30, 90], mode.mode + " shield");
   }
-  const h = createGame({ mode: "campaign", level: 1, god: true }); h.state = "waves"; h.waveIdx = 999; h.player.specialCd = 9; h.pickups = [{ x: h.player.x, y: h.player.y, kind: "blast", t: 0, vy: 0 }]; updateGame(h, 0.001, {}); assert(h.player.specialCd <= 0, "Blast pickup makes the blast ready");
+});
+t("blast charges: start with 1, pickups add 1 up to 3, each blast uses 1, none left = no blast", () => {
+  for (const mode of [{ mode: "campaign", level: 1, god: true }, { mode: "endless", seed: 1, god: true }]) {
+    const h = createGame(mode); h.state = mode.mode === "endless" ? "endless" : "waves"; h.waveIdx = 999; const p = h.player; assert.strictEqual(p.blasts, 1);
+    const grab = () => { h.pickups = [{ x: p.x, y: p.y, kind: "blast", t: 0, vy: 0, pid: "bl0" }]; updateGame(h, 0.001, {}); };
+    grab(); grab(); assert.strictEqual(p.blasts, 3); grab(); assert.strictEqual(p.blasts, 3, "capped at 3");
+    const fireBlast = () => { updateGame(h, 1 / 60, { specialPressed: true }); for (let i = 0; i < 80; i++) updateGame(h, 1 / 60, {}); };
+    fireBlast(); assert.strictEqual(p.blasts, 2); fireBlast(); fireBlast(); assert.strictEqual(p.blasts, 0);
+    updateGame(h, 1 / 60, { specialPressed: true }); assert.strictEqual(p.charge, 0, "no charge left: nothing happens"); for (let i = 0; i < 60 * 20; i++) updateGame(h, 1 / 60, {}); assert.strictEqual(p.blasts, 0, "no automatic recharge");
+  }
 });
 t("endless five-minute stages stop at 20 min: ×2/×4/×8/×16 enemies, speed +25% per stage, hit caps 5 / 10 / 15, max 50 on screen", () => {
   const R = globalThis.EndlessRules; assert.deepStrictEqual([0, 299, 300, 600, 900, 1200, 1500, 2400].map(R.countMult), [1, 1, 2, 4, 8, 16, 16, 16]);

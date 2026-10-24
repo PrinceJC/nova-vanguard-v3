@@ -5,12 +5,14 @@
   if (typeof module === "object" && module.exports) module.exports = m; else root.EndlessRules = m;
 })(typeof self !== "undefined" ? self : this, function () {
   "use strict";
-  const VERSION = 7;
+  const VERSION = 9;
   const PLAYER_HP = 3, INV_MIN = 0.9, BLAST_CD = 14, FIRE_INT = 0.15, BLAST_DMG = 10;
   const PICKUP_LIFE = 30, ENTRY_MIN = 0.15, MAX_LIFE = 45;
   const TIER_SHOTS = [0, 1, 3, 6], TIER_DPS = TIER_SHOTS.map((n) => n / FIRE_INT), MAX_TIER_BONUS = 1000;
-  const POINTS_PER_TIER = 5, SHIELD_EVERY = 60, SHIELD_FIRST = 30, BLAST_EVERY = 15, BLAST_FIRST = 15;
+  const POINTS_PER_TIER = 5, SHIELD_EVERY = 60, SHIELD_FIRST = 30, BLAST_EVERY = 30, BLAST_FIRST = 30;
+  const BLAST_START = 1, BLAST_MAX = 3, BLAST_GAP = 1.0;   // stored blast charges: start with 1, hold up to 3, pickups add 1
   const MAX_ON_SCREEN = 50, MAX_STAGE = 4, HIT_CAP = { n: 5, f: 10, a: 15 };   // stages stop growing at 20 min
+  const POWERUP_TIME = 10, POWERUP_DMG = 2;   // bullet power-ups (Comet / Nova / Prism) last 10 s and double damage
   const UPGRADES = [];   // weapon upgrades come only from defeated elites
   const PICK_POINTS = {};   // no point pickups (diamonds removed); max-tier weapon pickups give MAX_TIER_BONUS
   const POWERUPS = ["comet", "nova", "prism"];
@@ -50,6 +52,8 @@
   function pow15(s) { let v = 1; for (let i = 0; i < s; i++) v *= 1.5; return v; }     // exact (3^s / 2^s)
   function pow125(s) { let v = 1; for (let i = 0; i < s; i++) v *= 1.25; return v; }   // exact (5^s / 4^s)
   function countMult(t) { return 1 << capStage(t); }
+  // player damage per bullet: ×1, then ×2 at 5 min, ×3 at 10, ×4 at 15, ×5 at 20 (stops growing with the stages)
+  function damageMult(t) { return 1 + capStage(t); }
   function speedAt(t) { const s = capStage(t), f = stageOf(t) >= MAX_STAGE ? 1 : (t - s * 300) / 300; return pow125(s) * (1 + 0.2 * f); }
   function hitsFor(type, t, elite) {
     const st = STATS[type], base = st[0] * (elite ? 2 : 1);
@@ -198,26 +202,35 @@
       if (t < kt - 0.02 || t > kt + PICKUP_LIFE) return fail("An item was collected at an impossible time.");
       if (kind === "up") { if (upTimes.length >= 2) score += MAX_TIER_BONUS; upTimes.push(t); }
     }
-    // the special blast recharges in 14 s, or instantly when a Blast pickup is collected
-    for (let i = 1; i < blasts.length; i++) if (blasts[i] - blasts[i - 1] < BLAST_CD - 0.05 && !blastPicks.some((p) => p > blasts[i - 1] - 0.5 && p <= blasts[i] + 0.05)) return fail("The special blast was used faster than its cooldown allows.");
+    // stored blast charges: 1 at the start, +1 per Blast pickup (max 3), −1 per blast; waves can't overlap
+    { const evs = blastPicks.map((t) => [t, 1]).concat(blasts.map((t) => [t, -1])).sort((a, b) => a[0] - b[0] || b[1] - a[1]);
+      let charges = BLAST_START, last = -9;
+      for (const [t, d] of evs) {
+        if (d > 0) { charges = Math.min(BLAST_MAX, charges + 1); continue; }
+        if (charges < 1) return fail("A special blast was used without a stored charge.");
+        if (t - last < BLAST_GAP - 0.05) return fail("Special blasts were fired faster than the blast wave allows.");
+        charges--; last = t;
+      } }
     const tierAt = (t) => Math.min(3, 1 + upTimes.filter((u) => u <= t).length);
-    const capUntil = (T) => {
-      let total = 0, prev = 0, tier = 1;
-      for (const u of upTimes) { if (u >= T) break; total += (u - prev) * TIER_DPS[tier]; prev = u; tier = Math.min(3, tier + 1); }
-      return total + (T - prev) * TIER_DPS[tier];
-    };
+    // power-up windows: each collected Comet/Nova/Prism doubles damage for 10 s from collection (re-collecting restarts the timer)
+    const puStarts = []; for (const [t, pid] of picks) { const m2 = /^d(\d+)$/.exec(pid); if (m2 && POWERUPS.includes(drops.get(+m2[1]))) puStarts.push(t); }
+    const puAt = (t) => puStarts.some((p) => t >= p && t < p + POWERUP_TIME);
+    const rateAt = (t) => TIER_DPS[tierAt(t)] * damageMult(t) * (puAt(t) ? POWERUP_DMG : 1);
+    const bps = [...new Set([0, ...upTimes, ...puStarts, ...puStarts.map((p) => p + POWERUP_TIME), 300, 600, 900, 1200])].sort((a, b) => a - b);
+    const capUntil = (T) => { let total = 0; for (let i = 0; i < bps.length && bps[i] < T; i++) { const a = bps[i], b = Math.min(T, i + 1 < bps.length ? bps[i + 1] : T); if (b > a) total += (b - a) * rateAt(a); } return total; };
+    const maxRate = (a, b) => { let m = rateAt(a); for (const p of bps) if (p > a && p <= b) m = Math.max(m, rateAt(p)); return m; };
     let dmgUsed = 0, elites = 0;
     for (const [t, id, cause] of kills) {
       const s = byId.get(id);
       if (t < s.t + ENTRY_MIN - 0.02) return fail("An enemy was defeated before it entered the screen.");
       if (t > s.t + MAX_LIFE) return fail("An enemy was defeated after it would have left the screen.");
-      const bl = blasts.filter((b) => b >= s.t - 1.2 && b <= t);
+      const bl = blasts.filter((b) => b >= s.t - 1.5 && b <= t);
       let eff = s.hp + s.shield - bl.length * BLAST_DMG;
       if (cause === 1) {
-        if (!blasts.some((b) => t >= b && t <= b + 1.2)) return fail("An enemy was credited to a special blast that didn’t happen.");
+        if (!blasts.some((b) => t >= b && t <= b + 1.5)) return fail("An enemy was credited to a special blast that didn’t happen.");
       } else {
         eff = Math.max(0, eff);
-        const tier = tierAt(t), need = Math.max(0, eff - TIER_SHOTS[tier]) / TIER_DPS[tier], have = t - s.t;
+        const mr = maxRate(s.t, t), need = Math.max(0, eff - mr * FIRE_INT) / mr, have = t - s.t;
         if (have + 0.06 < need) return fail("An enemy was defeated faster than the cannon can fire.");
         dmgUsed += eff;
         if (dmgUsed > capUntil(t) * 1.05 + 8) return fail("More damage was dealt than the cannon can produce.");
@@ -236,7 +249,7 @@
     return { ok: true, score: Math.round(score), kills: kills.length, elites, survival: end };
   }
 
-  return { VERSION, MAX_ON_SCREEN, HIT_CAP, MAX_STAGE, STATS, POOL, POWERUPS, UPGRADES, TIER_SHOTS, FIRE_INT, MAX_TIER_BONUS, PLAYER_HP, BLAST_CD, BLAST_DMG, PICKUP_LIFE, PICK_POINTS,
+  return { VERSION, BLAST_START, BLAST_MAX, BLAST_FIRST, MAX_ON_SCREEN, HIT_CAP, MAX_STAGE, STATS, POOL, POWERUPS, UPGRADES, TIER_SHOTS, FIRE_INT, MAX_TIER_BONUS, PLAYER_HP, BLAST_CD, BLAST_DMG, PICKUP_LIFE, PICK_POINTS,
     WAVE_EVERY, STEP_SECONDS, SHIELD_EVERY, BLAST_EVERY, rng, hash01, createSchedule, waveSpawns, timedPickupsUntil, newDropState, dropFor, milestonePoints, validate,
-    spawnGap, speedAt, threatLevel, minuteMult, stageOf, capStage, countMult, hitsFor, pointsFor, pow15, pow125 };
+    spawnGap, speedAt, threatLevel, minuteMult, stageOf, capStage, countMult, damageMult, POWERUP_TIME, POWERUP_DMG, hitsFor, pointsFor, pow15, pow125 };
 });

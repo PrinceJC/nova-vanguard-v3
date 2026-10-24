@@ -16,7 +16,7 @@ function bot(g, inp, god) {
     for (const b of g.ebul) if (Math.abs(b.x - p.x) < 70 && Math.abs(b.y - p.y) < 22) { inp.up = b.y > p.y; inp.down = !inp.up; break; }
     for (const h of g.hz) if (h.type === "hbeam" && Math.abs(h.y - p.y) < h.h / 2 + 8) { inp.up = h.y > p.y || p.y > 480; inp.down = !inp.up; }
   }
-  if (p.specialCd <= 0 && g.ebul.length > 20) inp.specialPressed = true;
+  if (p.blasts > 0 && (g.ebul.length > 20 || g.enemies.length > 25)) inp.specialPressed = true;
 }
 
 function campaign(L, god, tier) {
