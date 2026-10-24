@@ -86,7 +86,7 @@ function queueGroup(g, type, count, pattern, base) {
   if (type.startsWith("obs:")) { for (let i = 0; i < count; i++) g.queue.push({ at: g.t + base + i * 2.2, obs: type.slice(4) }); return; }
   const def = ENEMIES[type];
   if (def.move === "edge" || def.move === "turret") { for (let i = 0; i < count; i++) g.queue.push({ at: g.t + base + i * 1.3, type, y: i % 2 === 0 ? "bottom" : "top" }); return; }
-  if (pattern === "column" || def.move === "dash" || def.move === "stopfire" || def.move === "teleport") {
+  if (pattern === "column" || def.move === "dash" || def.move === "rush" || def.move === "stopfire" || def.move === "teleport") {
     const span = Math.min(90 * (count - 1), H - 160), cy = rand(80 + span / 2, H - 80 - span / 2);
     for (let i = 0; i < count; i++) g.queue.push({ at: g.t + base + (pattern === "column" ? 0 : i * 0.45), type, y: count === 1 ? rand(90, H - 90) : cy - span / 2 + (span / (count - 1)) * i });
   } else if (pattern === "v") {
@@ -96,12 +96,22 @@ function queueGroup(g, type, count, pattern, base) {
   else { const y = rand(80, H - 80); for (let i = 0; i < count; i++) g.queue.push({ at: g.t + base + i * 0.55, type, y }); }
 }
 
+// Score tier: basic 1 (5 pts) · tougher 2 (10) · larger 3 (15) · armored bulwarks 3–6 · elites +2 tiers.
+function enemyTier(def) { if (def.armored) return def.armored + 2; if (def.move === "rush") return 2; return def.hp <= 2 ? 1 : def.hp <= 4 ? 2 : 3; }
+// Campaign hits: basic enemies 1→5 with each minute of active play in the level (cap 5); other tiers scale from their base hits.
+function campaignHits(g, def, elite) {
+  const tier = enemyTier(def), m = EndlessRules.minuteMult(g.t);
+  if (tier === 1 && !elite) return Math.min(5, m);
+  const base = def.armored ? def.hp : tier === 2 ? 2 : 4, levelF = 1 + Math.floor((g.level - 1) / 20) * 0.25;
+  return Math.ceil(base * (elite ? 2 : 1) * m * levelF - 1e-9);
+}
+const ENEMY_CAP = [70, 100, 130];   // most enemies on screen at once (by graphics level) — keeps big Endless stages smooth
 function spawnEnemy(g, type, y, x, o = {}) {
   const def = ENEMIES[type], elite = !!o.elite;
-  const lvMul = (g.mode === "campaign" && !def.armored ? 1 + Math.min(1.2, (g.level - 1) * 0.012) : 1) * (elite && o.hp === undefined ? 2.6 : 1);
+  const campHp = g.mode === "campaign" && o.hp === undefined ? campaignHits(g, def, elite) : null;
   const base = Math.min(def.size * ENEMY_SCALE, def.armored ? 92 + def.armored * 8 : 105), k = base / def.size, size = base * (elite ? ELITE_SCALE : 1), er = def.r * k * (elite ? ELITE_SCALE : 1);
-  const e = { type, def, size, r: er, x: x ?? W + size / 2 + 10, y: 0, y0: 0, hp: o.hp ?? def.hp * lvMul, shield: o.shield ?? (def.shield || 0) * (g.mode === "campaign" ? 1 + Math.min(0.6, g.level * 0.006) : 1) * (elite ? 1.5 : 1),
-    t: 0, st: "in", stT: 0, fireT: def.fire && def.fire.every ? rand(0.6, 1.4) : 0, flash: 0, flip: false, entered: false, burst: 0, burstT: 0, rot: 0, jumps: 0, kb: 0, sid: o.sid || 0, elite, score: o.score ?? def.score * (elite ? 3 : 1) };
+  const e = { type, def, size, r: er, x: x ?? W + size / 2 + 10, y: 0, y0: 0, hp: o.hp ?? campHp ?? def.hp, shield: o.shield ?? (def.shield || 0) * (g.mode === "campaign" ? 1 + Math.min(0.6, g.level * 0.006) : 1) * (elite ? 1.5 : 1),
+    t: 0, st: "in", stT: 0, fireT: def.fire && def.fire.every ? rand(0.6, 1.4) : 0, flash: 0, flip: false, entered: false, burst: 0, burstT: 0, rot: 0, jumps: 0, kb: 0, sid: o.sid || 0, elite, score: o.score ?? 5 * (enemyTier(def) + (elite ? 2 : 0)) };
   e.maxShield = e.shield; e.maxHp = e.hp; e.spd = g.mode === "endless" ? EndlessRules.speedAt(g.t) : 1;
   if (y === "top" || y === "bottom") { e.flip = y === "top"; e.y = y === "top" ? size / 2 + 2 : H - size / 2 - 2; }
   else { const amp = def.amp || 12; e.y = clamp(y, amp + size * 0.5 + 8, H - amp - size * 0.5 - 8); }
@@ -329,18 +339,16 @@ function damageEnemy(g, e, dmg, ignoreShield, cause = 0) {
   if (g.mode === "endless") {
     const t = r3(g.t), s = g.spawnMap.get(e.sid);
     g.rec.kills.push([t, e.sid, cause]);
-    g.score += s.score; if (s.elite) { g.elites++; floatText(g, e.x, e.y - 20, "+" + s.score, "#ffd34f"); }
-    const kind = EndlessRules.dropFor(g.seed, s, t, g.dropState);
+    g.score += s.score; if (s.elite) g.elites++;
+    if (g.enemies.length < 40 || s.score >= 15) floatText(g, e.x, e.y - 18, "+" + s.score, s.score >= 15 ? "#ffd34f" : "#ffe9b0", s.score >= 15 ? 17 : 14);
+    const kind = EndlessRules.dropFor(g.seed, s);
     if (kind) g.pickups.push({ x: e.x, y: e.y, kind, t: 0, vy: rand(-20, 20), pid: "d" + e.sid });
     return;
   }
   g.score += e.score;
-  if (e.elite) { dropPickup(g, e.x, e.y, "up"); floatText(g, e.x, e.y - 30, "+" + e.score, "#ffd34f"); return; }
-  const r = Math.random();
-  if (r < 0.06) dropPickup(g, e.x, e.y, "hp");
-  else if (r < 0.1) dropPickup(g, e.x, e.y, "shield");
-  else if (r < 0.14) dropPickup(g, e.x, e.y, pick(["comet", "nova", "prism"]));
-  else if (r < 0.28) dropPickup(g, e.x, e.y, "score");
+  if (g.enemies.length < 40 || e.score >= 15) floatText(g, e.x, e.y - 18, "+" + e.score, e.score >= 15 ? "#ffd34f" : "#ffe9b0", e.score >= 15 ? 17 : 14);
+  if (e.elite) { dropPickup(g, e.x, e.y, "up"); return; }
+  if (Math.random() < 0.04) dropPickup(g, e.x, e.y, pick(["comet", "nova", "prism"]));
 }
 function damageObstacle(g, o, dmg) {
   o.hp -= dmg; o.flash = 0.06;
@@ -439,8 +447,16 @@ function updateGame(g, dt, input) {
   collide(g);
 }
 
+function updateTimedPickups(g) {
+  if (g.state === "dead" || g.state === "complete" || g.state === "warning") return;
+  g.tp = g.tp || { sh: 0, bl: 0 };
+  const S = EndlessRules, T = g.tp;
+  while (30 + T.sh * S.SHIELD_EVERY <= g.t) { const k = T.sh++; g.pickups.push({ x: W + 20, y: 40 + (0.25 + (k % 3) * 0.25) * (H - 80), kind: "shield", t: 0, vy: 0, pid: g.mode === "endless" ? "sh" + k : undefined }); }
+  while (10 + T.bl * S.BLAST_EVERY <= g.t) { const k = T.bl++; g.pickups.push({ x: W + 20, y: 40 + (0.3 + (k % 4) * 0.13) * (H - 80), kind: "blast", t: 0, vy: 0, pid: g.mode === "endless" ? "bl" + k : undefined }); }
+}
 function updateCampaignFlow(g, dt) {
   const p = g.player;
+  if (g.state === "waves" || g.state === "boss") updateTimedPickups(g);
   if (g.state === "intro" && g.stateT > 2.6) { g.state = "waves"; g.stateT = 0; }
   if (g.state === "waves") {
     g.waveT -= dt; g.sinceLast += dt;
@@ -463,8 +479,11 @@ function updateCampaignFlow(g, dt) {
 
 function updateEndlessFlow(g, dt) {
   if (g.state !== "endless") return;
+  updateTimedPickups(g);
+  const cap = ENEMY_CAP[g.quality ?? 2];
   for (const s of g.sched.take(g.t)) {
     g.spawnMap.set(s.id, s);
+    if (g.enemies.length >= cap) continue;   // screen full: skip this spawn (never spawns on the player; keeps phones smooth)
     const y = typeof s.y === "number" ? 40 + s.y * (H - 80) : s.y;
     spawnEnemy(g, s.type, y, undefined, { hp: s.hp, shield: s.shield, sid: s.id, elite: s.elite, score: s.score });
   }
@@ -484,6 +503,7 @@ function collect(g, k) {
   const pts = g.mode === "endless" ? EndlessRules.PICK_POINTS : { score: 250, big: 1000, hp: 50, shield: 0, up: 0 };
   if (k.kind === "hp") { const full = p.hp >= PLAYER_HP; p.hp = Math.min(PLAYER_HP, p.hp + 1); p.healT = 0.6; floatText(g, p.x, p.y - 40, full ? "Health full" : "+1 health", "#6fe04a"); }
   else if (k.kind === "shield") { p.shield = p.shieldMax; floatText(g, p.x, p.y - 40, "Shield 6s", "#9ff7c4"); }
+  else if (k.kind === "blast") { p.specialCd = 0; p.upT = 0.5; floatText(g, p.x + 40, p.y - 60, "Blast ready!", "#7ff3ff", 22); }
   else if (BULLET_POWERUPS[k.kind]) { const pu = BULLET_POWERUPS[k.kind]; p.bullet = { kind: k.kind, t: POWERUP_TIME }; p.upT = 0.6; floatText(g, p.x + 40, p.y - 60, `${pu.name}! ${POWERUP_TIME}s`, pu.color, 22); }
   else if (k.kind === "up") {
     p.upT = 0.9;
@@ -492,7 +512,7 @@ function collect(g, k) {
   }
   else floatText(g, k.x, k.y - 16, "+" + (pts[k.kind] || 0), "#ffe08a");
   g.score += pts[k.kind] || 0;
-  particle(g, k.x, k.y, BULLET_POWERUPS[k.kind] ? BULLET_POWERUPS[k.kind].color : k.kind === "hp" || k.kind === "shield" ? "#6fe04a" : "#ffd34f", 10, 110, 0.45);
+  particle(g, k.x, k.y, BULLET_POWERUPS[k.kind] ? BULLET_POWERUPS[k.kind].color : k.kind === "blast" ? "#7ff3ff" : k.kind === "shield" ? "#6fe04a" : "#ffd34f", 10, 110, 0.45);
   if (g.parts.length < QUALITY_PARTS[g.quality]) g.parts.push({ ring: true, x: k.x, y: k.y, life: 0.3, max: 0.3, size: 26, color: k.kind === "hp" || k.kind === "shield" ? "#6fe04a" : "#ffd34f" });
   ev(g, "sfx", { name: k.kind === "up" ? "powerup" : k.kind === "hp" ? "heal" : "pickup" });
 }

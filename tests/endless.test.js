@@ -35,15 +35,16 @@ t("outdated rules version is rejected", () => { const e = clone(base); e.v = 0; 
 t("out-of-order events are rejected", () => { const e = clone(base); [e.kills[3], e.kills[9]] = [e.kills[9], e.kills[3]]; assert.match(R.validate(seed, e, el).reason, /order/); });
 t("malformed payload is rejected", () => { assert(!R.validate(seed, null, el).ok); assert(!R.validate(seed, { v: 1, end: 10 }, el).ok); assert(!R.validate(seed, { v: 1, end: "x", kills: [], picks: [], hits: [], blasts: [] }, el).ok); });
 
-// endless healing cap: at most 2 health drops per 5-minute window
-t("endless health drops never exceed 2 per 5-minute window", () => {
-  const gg = endless(99, true, 1500); // invincible bot, 25 minutes
-  const st = R.newDropState(); const sched = new Map(R.createSchedule(99).take(1600).map((s) => [s.id, s]));
-  const per = {};
-  for (const [tt, id] of gg.rec.kills) { const k = R.dropFor(99, sched.get(id), tt, st); if (k === "hp") { const w = Math.floor(tt / 300); per[w] = (per[w] || 0) + 1; } }
-  const spawnedClient = {}; // also count drops the client actually spawned
-  console.log("    hp drops per window:", JSON.stringify(per));
-  assert(Object.values(per).every((n) => n <= 2));
-  assert(Object.keys(per).length >= 4);
+t("no health, diamond or shield drops exist in endless (timed shields/blasts only)", () => {
+  const gg = endless(99, true, 900), kinds = new Set(gg.rec.picks.map(([, pid]) => pid.replace(/\d+/g, "")));
+  for (const [, pid] of gg.rec.picks) if (pid.startsWith("d")) { const s = gg.spawnMap.get(+pid.slice(1)); assert(["up", "comet", "nova", "prism"].includes(R.dropFor(gg.seed, s))); }
+  assert(kinds.has("sh") || kinds.has("bl"));
+});
+t("a blast soon after the previous one is allowed only if a Blast pickup was collected in between", () => {
+  const bl = base.picks.find(([, pid]) => pid.startsWith("bl")); assert(bl, "the honest run collected a Blast pickup");
+  const keepKill = (k) => k[2] === 0, kept = new Set(base.kills.filter(keepKill).map((k) => k[1]));
+  const mk = (withPick) => { const e = clone(base); e.kills = e.kills.filter(keepKill); e.picks = e.picks.filter(([, pid]) => (pid.startsWith("d") ? kept.has(+pid.slice(1)) : true) && (withPick || pid !== bl[1])); e.blasts = [bl[0] - 5, bl[0] + 1]; return e; };
+  const okRun = R.validate(seed, mk(true), el), badRun = R.validate(seed, mk(false), el);
+  assert(okRun.ok, okRun.reason); assert(!badRun.ok && /cooldown/.test(badRun.reason), badRun.reason);
 });
 console.log(`\n${pass} endless tests passed`);

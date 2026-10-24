@@ -27,7 +27,7 @@ t("hold-to-fire repeats the active pattern every fire interval", () => { const h
 t("defeating a campaign elite drops exactly one weapon upgrade at its position", () => { const h = createGame({ mode: "campaign", level: 5, tier: 1, god: true }); const e = spawnEnemyG(h, true); e.t = 1; damage(h, e); const ups = h.pickups.filter((k) => k.kind === "up"); assert.strictEqual(ups.length, 1); assert(Math.abs(ups[0].x - e.x) < 1 && Math.abs(ups[0].y - e.y) < 1); });
 t("normal enemies never drop weapon upgrades", () => { const h = createGame({ mode: "campaign", level: 5, tier: 1, god: true }); for (let i = 0; i < 300; i++) { const e = spawnEnemyG(h, false); e.t = 1; damage(h, e); } assert(!h.pickups.some((k) => k.kind === "up")); });
 t("upgrade pickups drift left slower than enemy bullets", () => { assert(55 < 85); });
-t("elites are 1.5× larger and tougher than normal enemies", () => { const h = createGame({ mode: "campaign", level: 5, tier: 1 }); const a = spawnEnemyG(h, false), b = spawnEnemyG(h, true); assert.strictEqual(b.size / a.size, 1.5); assert(b.hp > a.hp * 2); });
+t("elites are 1.5× larger and at least twice as tough", () => { const h = createGame({ mode: "campaign", level: 5, tier: 1 }); const a = spawnEnemyG(h, false), b = spawnEnemyG(h, true); assert.strictEqual(b.size / a.size, 1.5); assert(b.hp >= a.hp * 2); });
 t("weapon upgrades only on collection; max tier gives +1000 once per pickup", () => {
   const h = createGame({ mode: "campaign", level: 5, tier: 1, god: true }); h.state = "waves"; h.waveIdx = 99;
   const grab = () => { h.pickups = [{ x: h.player.x, y: h.player.y, kind: "up", t: 0, vy: 0 }]; const s0 = h.score; updateGame(h, 0.001, {}); return h.score - s0; };
@@ -38,7 +38,7 @@ t("endless: enemies never fire projectiles; danger is contact only", () => { con
 t("endless: spawn gap shrinks every 20 s, cumulatively, to a floor", () => { const R = globalThis.EndlessRules; let prev = Infinity; for (let s = 0; s <= 600; s += 20) { const gp = R.spawnGap(s); assert(gp <= prev); if (s >= 20 && gp > 1.1) assert(gp < R.spawnGap(s - 20)); prev = gp; } assert.strictEqual(R.spawnGap(0), R.spawnGap(19.9)); assert.strictEqual(R.spawnGap(5000), 0.9); });
 t("endless waves: every 20 s, bigger each time, staggered, two lanes left open, darts spaced", () => { const R = globalThis.EndlessRules; let prev = 0;
   for (let n = 1; n <= 15; n++) { const w = R.waveSpawns(77, n); assert(w.length > prev || w.length === 34, "wave " + n + " grows"); prev = w.length;
-    const ts = w.map((s) => s.t), lanes = new Set(w.map((s) => s.y)); assert(Math.min(...ts) >= n * 20 && Math.max(...ts) - Math.min(...ts) >= 0.5 && Math.max(...ts) <= n * 20 + 6); assert(lanes.size <= 6, "at least two lanes open");
+    const ts = w.map((s) => s.t), lanes = new Set(w.map((s) => s.y)); assert(Math.min(...ts) >= n * 20 && Math.max(...ts) - Math.min(...ts) >= 0.5 && Math.max(...ts) < (n + 1) * 20); assert(lanes.size <= 6, "at least two lanes open");
     const darts = w.map((s, i) => (s.type === "dart" ? s.t : null)).filter((x) => x !== null).sort((a, b) => a - b); for (let i = 1; i < darts.length; i++) assert(darts[i] - darts[i - 1] >= 0.5);
     if (n >= 3) assert(w.some((s) => s.type.startsWith("bulwark"))); }
   const all = R.createSchedule(77).take(130), ids = all.map((s) => s.id); assert.strictEqual(new Set(ids).size, ids.length, "unique ids");
@@ -48,23 +48,23 @@ t("ranked endless always starts at one shot, regardless of avatar", () => { for 
 t("campaign levels start at the tier the app passes in (the app always passes 1)", () => { assert.strictEqual(createGame({ mode: "campaign", level: 12, tier: 1 }).player.tier, 1); assert.strictEqual(createGame({ mode: "campaign", level: 12 }).player.tier, 1); });
 t("player hitbox is a small core inside the much larger artwork", () => assert(PLAYER_HITBOX() * 2 < 140 * 0.1));
 function PLAYER_HITBOX() { return 6; }
-t("health pickups stay capped at two per campaign level even with weapon drops", () => { const h = createGame({ mode: "campaign", level: 5, tier: 1, god: true }); for (let i = 0; i < 600; i++) { const e = spawnEnemyG(h, i % 7 === 0); e.t = 1; damage(h, e); } assert(h.pickups.filter((k) => k.kind === "hp").length <= 2); assert(h.pickups.filter((k) => k.kind === "up").length > 50); });
+t("no health or diamond pickups ever drop; elites still drop weapon upgrades", () => { const h = createGame({ mode: "campaign", level: 5, tier: 1, god: true }); for (let i = 0; i < 600; i++) { const e = spawnEnemyG(h, i % 7 === 0); e.t = 1; damage(h, e); } const k = h.pickups.map((x) => x.kind); assert(!k.some((x) => x === "hp" || x === "score" || x === "big" || x === "shield")); assert(k.filter((x) => x === "up").length > 50); });
 function spawnEnemyG(h, elite) { return globalThis.__spawn(h, "shield_pod", 270, 600, { elite }); }
 function damage(h, e) { globalThis.__damage(h, e, 9999, true); }
 // ---------------- lives, armored, fast enemies, bullet power-ups
-t("three lives in Campaign and Endless; healing caps at three", () => {
-  for (const m of [{ mode: "campaign", level: 1 }, { mode: "endless", seed: 3 }]) { const h = createGame(m); assert.strictEqual(h.player.hp, 3); h.pickups = [{ x: h.player.x, y: h.player.y, kind: "hp", t: 0, vy: 0 }]; updateGame(h, 0.001, {}); assert.strictEqual(h.player.hp, 3); }
+t("three lives in Campaign and Endless, with no way to restore them", () => {
+  for (const m of [{ mode: "campaign", level: 1 }, { mode: "endless", seed: 3 }]) { const h = createGame(m); assert.strictEqual(h.player.hp, 3); }
   assert.strictEqual(globalThis.EndlessRules.PLAYER_HP, 3);
   const h = createGame({ mode: "endless", seed: 9 }); for (let i = 0; i < 3; i++) { h.player.inv = 0; globalThis.__hurt(h); } assert(h.player.dead);
 });
 t("armored enemies need exactly 5 / 10 / 15 / 20 bullet hits", () => {
-  for (const [tier, hits] of [[1, 5], [2, 10], [3, 15], [4, 20]]) for (const mode of [{ mode: "endless", seed: 1 }, { mode: "campaign", level: 60 }]) {
-    const h = createGame(mode); const e = globalThis.__spawn(h, "bulwark" + tier, 270, 600, mode.mode === "endless" ? { sid: 999 } : {}); e.t = 1; let n = 0;
+  for (const [tier, hits] of [[1, 5], [2, 10], [3, 15], [4, 20]]) for (const mode of [{ mode: "endless", seed: 1 }, { mode: "campaign", level: 1 }]) {
+    const h = createGame(mode); const e = globalThis.__spawn(h, "bulwark" + tier, 270, 600, mode.mode === "endless" ? { sid: 999, hp: globalThis.EndlessRules.hitsFor("bulwark" + tier, 0) } : {}); e.t = 1; let n = 0;
     if (h.spawnMap) h.spawnMap.set(999, { id: 999, score: 300, elite: false });
-    while (!e.dead && n < 50) { globalThis.__damage(h, e, 1, false, 0); n++; } assert.strictEqual(n, hits, `tier ${tier} ${mode.mode}`); }
+    while (!e.dead && n < 50) { globalThis.__damage(h, e, 1, false, 0); n++; } assert.strictEqual(n, hits, `tier ${tier} ${mode.mode}: took ${n} hits, hp field ${e.maxHp}, shield ${e.maxShield}, level ${h.level}, t ${h.t}`); }
 });
 t("endless schedule: armored tiers have exact hit counts and arrive gradually", () => { const R = globalThis.EndlessRules, s = R.createSchedule(5).take(600), first = {};
-  for (const x of s) { if (!(x.type in first)) first[x.type] = x.t; if (x.type.startsWith("bulwark") && !x.elite) assert.strictEqual(x.hp, { bulwark1: 5, bulwark2: 10, bulwark3: 15, bulwark4: 20 }[x.type]); }
+  for (const x of s) { if (!(x.type in first)) first[x.type] = x.t; if (x.type.startsWith("bulwark")) { assert.strictEqual(x.hp, R.hitsFor(x.type, x.t, x.elite)); if (x.t < 60) assert.strictEqual(x.hp, { bulwark1: 5, bulwark2: 10, bulwark3: 15, bulwark4: 20 }[x.type]); } }
   assert(first.bulwark1 >= 35 && first.bulwark2 >= 100 && first.bulwark3 >= 180 && first.bulwark4 >= 270 && first.dart >= 55); assert(first.mite < 10); });
 t("fast darts warn for 0.9 s before rushing, and the rush is dodgeable", () => {
   const h = createGame({ mode: "endless", seed: 2, god: true }); h.player.x = 150; h.player.y = 270;
@@ -83,5 +83,33 @@ t("bullet power-ups change bullet look and speed for 10 s, then expire", () => {
     assert.strictEqual(b.kind, kind); assert(Math.abs(b.vx / base - mult) < 0.01, kind); assert.strictEqual(b.dmg, 1, "damage unchanged (ranked fairness)"); }
   for (let i = 0; i < 60 * 11; i++) updateGame(h, 1 / 60, {}); assert.strictEqual(h.player.bullet, null); assert.strictEqual(fire(h)[0].kind, null);
 });
-t("power-ups never count toward the health-pickup cap", () => { const h = createGame({ mode: "campaign", level: 5, tier: 1, god: true }); for (let i = 0; i < 800; i++) { const e = globalThis.__spawn(h, "scout_drone", 270, 600); e.t = 1; globalThis.__damage(h, e, 99, true); } const k = h.pickups.map((x) => x.kind); assert(k.filter((x) => x === "hp").length <= 2); assert(k.some((x) => ["comet", "nova", "prism"].includes(x))); });
+t("bullet power-ups still drop occasionally", () => { const h = createGame({ mode: "campaign", level: 5, tier: 1, god: true }); for (let i = 0; i < 800; i++) { const e = globalThis.__spawn(h, "scout_drone", 270, 600); e.t = 1; globalThis.__damage(h, e, 99, true); } assert(h.pickups.some((x) => ["comet", "nova", "prism"].includes(x.kind))); });
+// ---------------- v6 rules
+t("points: basic 5, tougher 10, larger 15, then +5 per tier (both modes), awarded once", () => {
+  const R = globalThis.EndlessRules; assert.deepStrictEqual(["mite", "dart", "bulwark1", "bulwark2", "bulwark3", "bulwark4"].map((x) => R.pointsFor(x)), [5, 10, 15, 20, 25, 30]);
+  const h = createGame({ mode: "campaign", level: 3, god: true });
+  for (const [type, pts] of [["scout_drone", 5], ["frost_drone", 10], ["glacier_guard", 15], ["bulwark1", 15], ["bulwark4", 30]]) { const e = globalThis.__spawn(h, type, 270, 600); e.t = 1; const s0 = h.score; globalThis.__damage(h, e, 9999, true); globalThis.__damage(h, e, 9999, true); assert.strictEqual(h.score - s0, pts, type); }
+});
+t("durability by active minute: basic 1→5 hits (capped), tougher tiers scale from base", () => {
+  const R = globalThis.EndlessRules; assert.deepStrictEqual([30, 90, 150, 210, 250, 900].map((t) => R.hitsFor("mite", t)), [1, 2, 3, 4, 5, 5]);
+  assert.deepStrictEqual([30, 90, 150].map((t) => R.hitsFor("bulwark1", t)), [5, 10, 15]);
+  const h = createGame({ mode: "campaign", level: 1 }); const hits = []; for (const t of [30, 90, 150, 210, 250]) { h.t = t; hits.push(globalThis.__spawn(h, "scout_drone", 270, 600).hp); } assert.deepStrictEqual(hits, [1, 2, 3, 4, 5]);
+  h.t = 30; const old = globalThis.__spawn(h, "scout_drone", 270, 600); h.t = 200; globalThis.__spawn(h, "scout_drone", 300, 600); assert.strictEqual(old.hp, 1, "enemies already on screen keep their health");
+  assert.strictEqual(createGame({ mode: "campaign", level: 2 }).t, 0, "durability timer resets each level");
+});
+t("timed pickups: Blast every 20 s, shield every 60 s, in both modes", () => {
+  for (const mode of [{ mode: "endless", seed: 8, god: true }, { mode: "campaign", level: 2, god: true }]) {
+    const h = createGame(mode);
+    const seen = []; for (let i = 0; i < 60 * 130; i++) { const before = h.pickups.length; updateGame(h, 1 / 60, {}); for (const k of h.pickups.slice(before)) if (k.kind === "blast" || k.kind === "shield") seen.push(k.kind[0] + Math.round(h.t)); if (h.state === "warning" || h.boss) break; }
+    const b = seen.filter((x) => x[0] === "b").map((x) => +x.slice(1)), s = seen.filter((x) => x[0] === "s").map((x) => +x.slice(1));
+    assert.deepStrictEqual(b.slice(0, 4), [10, 30, 50, 70], mode.mode + " blast"); assert.deepStrictEqual(s.slice(0, 2), [30, 90], mode.mode + " shield");
+  }
+  const h = createGame({ mode: "campaign", level: 1, god: true }); h.state = "waves"; h.waveIdx = 999; h.player.specialCd = 9; h.pickups = [{ x: h.player.x, y: h.player.y, kind: "blast", t: 0, vy: 0 }]; updateGame(h, 0.001, {}); assert(h.player.specialCd <= 0, "Blast pickup makes the blast ready");
+});
+t("endless five-minute stages: ×2 / ×4 / ×8 enemies, speed ×1.5 per stage, non-basic durability ×1.5 (rounded up), basic stays ≤5", () => {
+  const R = globalThis.EndlessRules; assert.deepStrictEqual([0, 299, 300, 600, 900, 1200].map(R.countMult), [1, 1, 2, 4, 8, 16]);
+  assert.strictEqual(R.speedAt(300) / R.speedAt(0), 1.5); assert.strictEqual(R.speedAt(600) / R.speedAt(300), 1.5);
+  assert.strictEqual(R.hitsFor("bulwark1", 310), Math.ceil(5 * 5 * 1.5)); assert.strictEqual(R.hitsFor("bulwark1", 610), Math.ceil(5 * 5 * 2.25)); assert.strictEqual(R.hitsFor("dart", 310), Math.ceil(2 * 5 * 1.5)); assert.strictEqual(R.hitsFor("mite", 610), 5);
+  const s = R.createSchedule(4).take(660), per = (a, b) => s.filter((x) => x.t >= a && x.t < b).length; assert(per(300, 360) > per(240, 300) * 1.6, "count doubles at 5 min"); assert(per(600, 660) > per(540, 600) * 1.6, "doubles again at 10 min");
+});
 console.log(`\n${pass} weapon/elite/enemy tests passed`);

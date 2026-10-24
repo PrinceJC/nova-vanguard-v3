@@ -129,6 +129,15 @@ function buildCampaignWaves(n) {
   // obstacles: world obstacle from level 3 of each world (never in world 1)
   const obs = L.world.obstacle === "mix" ? ["rock", "gate", "well"][i % 3] : L.world.obstacle;
   if (obs && i >= 3) { [3, 7, 10].forEach((ix, j) => { if (i >= 3 + j * 2) order[ix] = order[ix].concat([["obs:" + obs, 1 + (i >= 8 ? 1 : 0), "single"]]); }); }
-  return order.map((groups, ix) => ({ groups, dur: 6.2 + groups.length * 0.9 + (ix === 3 || ix === 7 || ix === 10 ? 1.5 : 0), elite: ix === 3 || ix === 7 || ix === 10 }));
+  // more enemies and groups: +2 per basic group, fast Darts from world 1 level 4 (warned before rushing),
+  // armored Bulwarks (tier rises with the world), and two extra mixed waves at the end
+  const boost = order.map((gs) => gs.map(([t, c, p]) => (t.startsWith("obs:") ? [t, c, p] : [t, c + (ENEMIES[t] && ENEMIES[t].hp <= 3 ? 2 : 0), p])));
+  const maxT = Math.min(4, 1 + Math.floor((w - 1) / 3)), dartN = 1 + Math.floor((n - 1) / 35), armN = 1 + (n >= 50 ? 1 : 0);
+  const fastOK = w > 1 || i >= 4;
+  [4, 8].forEach((ix) => { if (fastOK) boost[ix] = boost[ix].concat([["dart", dartN, "column"]]); });
+  [6, 9].forEach((ix, j) => { boost[ix] = boost[ix].concat([["bulwark" + Math.min(maxT, 1 + j + Math.floor(i / 5)), armN, "column"]]); });
+  boost.push([[a, 5 + k, "line"], [b, 4 + k, "v"], ["bulwark" + maxT, 1, "column"]]);
+  boost.push([[b, 5 + k, "column"], [c, 2, "column"], ...(fastOK ? [["dart", dartN + 1, "column"]] : []), [guests.length ? G(0) : a, 4, "line"]]);
+  return boost.map((groups, ix) => ({ groups, dur: 6.2 + groups.length * 0.9 + (ix === 3 || ix === 7 || ix === 10 ? 1.5 : 0), elite: ix === 3 || ix === 7 || ix === 10 }));
 }
 if (typeof module === "object" && module.exports) module.exports = { WORLDS, getLevel, buildCampaignWaves, bossSpec, TOTAL_LEVELS, buildCatalog };

@@ -212,12 +212,12 @@ function drawEnemy(ctx, e, g, now, Q) {
   if (d.pull) { ctx.strokeStyle = "#ff3fb4"; ctx.globalAlpha = 0.25; ctx.setLineDash([4, 6]); ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(e.x, e.y, 160 - ((now / 20) % 40), 0, TAU); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1; }
   if (e.charging) { ctx.strokeStyle = "#ff8a1f"; ctx.lineWidth = 2.5; ctx.globalAlpha = 0.7; ctx.beginPath(); ctx.arc(e.x, e.y, sz * 0.55 + Math.sin(now / 50) * 3, 0, TAU); ctx.stroke(); ctx.globalAlpha = 1; }
   if (e.elite) {
-    if (Q > 0) drawGlow(ctx, "#ffd34f", e.x, e.y, sz * 0.9, 0.35);
+    if (Q > 0 && g.enemies.length < 60) drawGlow(ctx, "#ffd34f", e.x, e.y, sz * 0.9, 0.35);
     ctx.save(); ctx.translate(e.x, e.y); ctx.rotate(now / 400); ctx.strokeStyle = "#ffd34f"; ctx.lineWidth = 2.5; ctx.setLineDash([6, 5]);
     ctx.beginPath(); ctx.arc(0, 0, sz * 0.6, 0, TAU); ctx.stroke(); ctx.restore(); ctx.setLineDash([]);
     ctx.strokeStyle = "#ffe08a"; ctx.lineWidth = 3; ctx.globalAlpha = 0.9; for (let i = 0; i < 4; i++) { const a0 = now / 700 + (i * TAU) / 4; ctx.beginPath(); ctx.arc(e.x, e.y, sz * 0.52, a0, a0 + 0.5); ctx.stroke(); } ctx.globalAlpha = 1;
   }
-  if (Q > 0 && d.move !== "turret" && d.move !== "edge") { const fl = 0.75 + 0.25 * Math.sin(now / 45 + e.y0); drawGlow(ctx, e.elite ? "#ffd34f" : "#7ab8ff", e.x + sz * 0.46, e.y, sz * 0.32 * fl, 0.75); drawGlow(ctx, "#ffffff", e.x + sz * 0.42, e.y, sz * 0.12 * fl, 0.8); }
+  if (Q > 0 && g.enemies.length < 45 && d.move !== "turret" && d.move !== "edge") { const fl = 0.75 + 0.25 * Math.sin(now / 45 + e.y0); drawGlow(ctx, e.elite ? "#ffd34f" : "#7ab8ff", e.x + sz * 0.46, e.y, sz * 0.32 * fl, 0.75); drawGlow(ctx, "#ffffff", e.x + sz * 0.42, e.y, sz * 0.12 * fl, 0.8); }
   let name = e.type;
   if (e.type === "glacier_guard" && e.shield <= 0) name = "glacier_guard_broken";
   const bob = d.move === "turret" || d.move === "edge" ? 0 : Math.sin(now / 200 + e.y0) * 1.5;
@@ -237,8 +237,9 @@ function drawEnemy(ctx, e, g, now, Q) {
     const T = ARMOR_TIERS[d.armored], w = sz * 0.8, x0 = e.x - w / 2, y0 = e.y - sz / 2 - 12;
     ctx.fillStyle = "#120c22"; roundRect(ctx, x0 - 2, y0 - 2, w + 4, 9, 4); ctx.fill();
     ctx.fillStyle = e.dmgT > 0 ? "#ffffff" : T.metal[0]; roundRect(ctx, x0, y0, Math.max(0, w * (e.hp / e.maxHp)), 5, 2.5); ctx.fill();
-    for (let i = 0; i < d.armored; i++) { ctx.fillStyle = T.metal[0]; ctx.strokeStyle = "#120c22"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(x0 + i * 9, y0 - 5); ctx.lineTo(x0 + i * 9 + 4, y0 - 10); ctx.lineTo(x0 + i * 9 + 8, y0 - 5); ctx.closePath(); ctx.fill(); ctx.stroke(); }
-    txt(ctx, Math.ceil(e.hp) + "", x0 + w + 6, y0 + 6, 12, "#ffffff", "left", 800);
+    const crowd = g.enemies.length > 30;   // busy screen: keep just the slim bar so enemies stay readable
+    if (!crowd) for (let i = 0; i < d.armored; i++) { ctx.fillStyle = T.metal[0]; ctx.strokeStyle = "#120c22"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(x0 + i * 9, y0 - 5); ctx.lineTo(x0 + i * 9 + 4, y0 - 10); ctx.lineTo(x0 + i * 9 + 8, y0 - 5); ctx.closePath(); ctx.fill(); ctx.stroke(); }
+    if (!crowd) txt(ctx, Math.ceil(e.hp) + "", x0 + w + 6, y0 + 6, 12, "#ffffff", "left", 800);
   }
   if (e.muzzle > 0 && Q > 0) drawGlow(ctx, "#ffb347", e.x - sz * 0.45, e.y, 10, 0.8);
   if (e.maxShield > 0 && e.shield > 0 && e.type !== "glacier_guard") {
@@ -363,10 +364,12 @@ function drawBoss(ctx, b, g, now) {
 // ============================================================ pickups (distinct shape + colour + label)
 function drawPickup(ctx, k, now, Q) {
   const y = k.y + Math.sin(now / 200 + k.x * 0.05) * 3, s = 1 + Math.sin(now / 150) * 0.06, green = k.kind === "hp" || k.kind === "shield";
-  if (Q > 0) drawGlow(ctx, BULLET_POWERUPS[k.kind] ? BULLET_POWERUPS[k.kind].color : green ? "#6fe04a" : "#ffd34f", k.x, y, 24, 0.45);
+  if (Q > 0) drawGlow(ctx, BULLET_POWERUPS[k.kind] ? BULLET_POWERUPS[k.kind].color : k.kind === "blast" ? "#7ff3ff" : green ? "#6fe04a" : "#ffd34f", k.x, y, 24, 0.45);
   ctx.save(); ctx.translate(k.x, y); ctx.scale(s, s); ctx.lineWidth = 2.5; ctx.strokeStyle = "#1a1030";
   if (k.kind === "hp") { ctx.fillStyle = "#6fe04a"; roundRect(ctx, -12, -12, 24, 24, 6); ctx.fill(); ctx.stroke(); ctx.fillStyle = "#fff"; ctx.fillRect(-3, -8, 6, 16); ctx.fillRect(-8, -3, 16, 6); }
   else if (k.kind === "shield") { ctx.fillStyle = "#6fe04a"; ctx.beginPath(); for (let i = 0; i < 6; i++) ctx.lineTo(Math.cos(i * TAU / 6) * 13, Math.sin(i * TAU / 6) * 13); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.moveTo(0, -7); ctx.lineTo(6, -4); ctx.lineTo(5, 3); ctx.lineTo(0, 7); ctx.lineTo(-5, 3); ctx.lineTo(-6, -4); ctx.closePath(); ctx.fill(); }
+  else if (k.kind === "blast") { ctx.fillStyle = "#0e2a3a"; ctx.beginPath(); ctx.arc(0, 0, 14, 0, TAU); ctx.fill(); ctx.strokeStyle = "#7ff3ff"; ctx.lineWidth = 3; ctx.stroke();
+    ctx.strokeStyle = "#e6ffff"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 0, 7 + Math.sin(now / 120) * 2, 0, TAU); ctx.stroke(); ctx.fillStyle = "#7ff3ff"; ctx.beginPath(); ctx.arc(0, 0, 3, 0, TAU); ctx.fill(); }
   else if (BULLET_POWERUPS[k.kind]) { const c = BULLET_POWERUPS[k.kind].color; ctx.fillStyle = "#1a1040"; ctx.beginPath(); ctx.arc(0, 0, 14, 0, TAU); ctx.fill(); ctx.strokeStyle = c; ctx.lineWidth = 3; ctx.stroke();
     ctx.fillStyle = c; if (k.kind === "nova") { starPath(ctx, 0, 0, 8, 3.5, 5, now / 300); ctx.fill(); } else if (k.kind === "comet") { ctx.beginPath(); ctx.arc(3, -2, 4, 0, TAU); ctx.fill(); ctx.fillRect(-9, -3, 9, 2); ctx.fillRect(-7, 1, 7, 2); } else { ctx.beginPath(); ctx.moveTo(8, 0); ctx.lineTo(0, -6); ctx.lineTo(-7, 0); ctx.lineTo(0, 6); ctx.closePath(); ctx.fill(); } }
   else if (k.kind === "up") { ctx.rotate(now / 600); ctx.fillStyle = "#ffd34f"; starPath(ctx, 0, 0, 16, 7.5, 5, -Math.PI / 2); ctx.fill(); ctx.stroke(); ctx.rotate(-now / 600); ctx.fillStyle = "#1a1030"; ctx.font = `800 12px ${FONT}`; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText("P", 0, 1); }
