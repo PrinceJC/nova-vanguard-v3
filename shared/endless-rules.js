@@ -5,7 +5,7 @@
   if (typeof module === "object" && module.exports) module.exports = m; else root.EndlessRules = m;
 })(typeof self !== "undefined" ? self : this, function () {
   "use strict";
-  const VERSION = 9;
+  const VERSION = 10;
   const PLAYER_HP = 3, INV_MIN = 0.9, BLAST_CD = 14, FIRE_INT = 0.15, BLAST_DMG = 10;
   const PICKUP_LIFE = 30, ENTRY_MIN = 0.15, MAX_LIFE = 45;
   const TIER_SHOTS = [0, 1, 3, 6], TIER_DPS = TIER_SHOTS.map((n) => n / FIRE_INT), MAX_TIER_BONUS = 1000;
@@ -54,6 +54,11 @@
   function countMult(t) { return 1 << capStage(t); }
   // player damage per bullet: ×1, then ×2 at 5 min, ×3 at 10, ×4 at 15, ×5 at 20 (stops growing with the stages)
   function damageMult(t) { return 1 + capStage(t); }
+  // bullet power-up damage: ×2, then ×3 at 5 min, ×4 at 10, ×5 at 15, ×6 at 20 (Campaign: at least the world's difficulty step)
+  function powerupMult(t, levelStage = 0) { return 2 + Math.max(capStage(t), levelStage); }
+  // Blast pickup interval tightens as the crowds grow: 30 s, then 10 s at 5 min, 8 s at 10, 6 s at 15, 5 s from 20
+  const BLAST_INTERVALS = [30, 10, 8, 6, 5];
+  function blastInterval(t) { return BLAST_INTERVALS[capStage(t)]; }
   function speedAt(t) { const s = capStage(t), f = stageOf(t) >= MAX_STAGE ? 1 : (t - s * 300) / 300; return pow125(s) * (1 + 0.2 * f); }
   function hitsFor(type, t, elite) {
     const st = STATS[type], base = st[0] * (elite ? 2 : 1);
@@ -146,7 +151,7 @@
   function timedPickupsUntil(T) {
     const out = [];
     for (let k = 0; SHIELD_FIRST + k * SHIELD_EVERY <= T; k++) out.push({ id: "sh" + k, kind: "shield", t: SHIELD_FIRST + k * SHIELD_EVERY, y: 0.25 + (k % 3) * 0.25 });
-    for (let k = 0; BLAST_FIRST + k * BLAST_EVERY <= T; k++) out.push({ id: "bl" + k, kind: "blast", t: BLAST_FIRST + k * BLAST_EVERY, y: 0.3 + (k % 4) * 0.13 });
+    for (let k = 0, t = BLAST_FIRST; t <= T; k++, t += blastInterval(t)) out.push({ id: "bl" + k, kind: "blast", t, y: 0.3 + (k % 4) * 0.13 });
     return out.sort((a, b) => a.t - b.t);
   }
   function newDropState() { return {}; }
@@ -215,7 +220,7 @@
     // power-up windows: each collected Comet/Nova/Prism doubles damage for 10 s from collection (re-collecting restarts the timer)
     const puStarts = []; for (const [t, pid] of picks) { const m2 = /^d(\d+)$/.exec(pid); if (m2 && POWERUPS.includes(drops.get(+m2[1]))) puStarts.push(t); }
     const puAt = (t) => puStarts.some((p) => t >= p && t < p + POWERUP_TIME);
-    const rateAt = (t) => TIER_DPS[tierAt(t)] * damageMult(t) * (puAt(t) ? POWERUP_DMG : 1);
+    const rateAt = (t) => TIER_DPS[tierAt(t)] * damageMult(t) * (puAt(t) ? powerupMult(t) : 1);
     const bps = [...new Set([0, ...upTimes, ...puStarts, ...puStarts.map((p) => p + POWERUP_TIME), 300, 600, 900, 1200])].sort((a, b) => a - b);
     const capUntil = (T) => { let total = 0; for (let i = 0; i < bps.length && bps[i] < T; i++) { const a = bps[i], b = Math.min(T, i + 1 < bps.length ? bps[i + 1] : T); if (b > a) total += (b - a) * rateAt(a); } return total; };
     const maxRate = (a, b) => { let m = rateAt(a); for (const p of bps) if (p > a && p <= b) m = Math.max(m, rateAt(p)); return m; };
@@ -251,5 +256,5 @@
 
   return { VERSION, BLAST_START, BLAST_MAX, BLAST_FIRST, MAX_ON_SCREEN, HIT_CAP, MAX_STAGE, STATS, POOL, POWERUPS, UPGRADES, TIER_SHOTS, FIRE_INT, MAX_TIER_BONUS, PLAYER_HP, BLAST_CD, BLAST_DMG, PICKUP_LIFE, PICK_POINTS,
     WAVE_EVERY, STEP_SECONDS, SHIELD_EVERY, BLAST_EVERY, rng, hash01, createSchedule, waveSpawns, timedPickupsUntil, newDropState, dropFor, milestonePoints, validate,
-    spawnGap, speedAt, threatLevel, minuteMult, stageOf, capStage, countMult, damageMult, POWERUP_TIME, POWERUP_DMG, hitsFor, pointsFor, pow15, pow125 };
+    spawnGap, speedAt, threatLevel, minuteMult, stageOf, capStage, countMult, damageMult, powerupMult, blastInterval, BLAST_INTERVALS, POWERUP_TIME, POWERUP_DMG, hitsFor, pointsFor, pow15, pow125 };
 });

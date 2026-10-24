@@ -402,7 +402,7 @@ function drawHUD(ctx, g, set, now) {
   txt(ctx, "Weapon", 150, 31, 15, "#c9bde8");
   const shots = EndlessRules.TIER_SHOTS[p.tier];
   for (let i = 0; i < 3; i++) { ctx.fillStyle = i < p.tier ? "#5ef2f2" : "#2b2148"; ctx.strokeStyle = "#1a1030"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(220 + i * 16, 20); ctx.lineTo(231 + i * 16, 26); ctx.lineTo(220 + i * 16, 32); ctx.closePath(); ctx.fill(); ctx.stroke(); }
-  const dmgNow = EndlessRules.damageMult(g.t) * (p.bullet ? EndlessRules.POWERUP_DMG : 1);
+  const dmgNow = EndlessRules.damageMult(g.t) * (p.bullet ? powerupMultFor(g) : 1);
   txt(ctx, shots + (shots === 1 ? " shot" : " shots") + (p.tier === 3 ? " (max)" : "") + (dmgNow > 1 ? `  ·  Damage ×${dmgNow}` : ""), 150, 50, 13, dmgNow > 1 ? "#ffd34f" : p.tier === 3 ? "#ffd34f" : "#a8fbff");
   // special blast: stored charges (●●○), max 3
   const max = EndlessRules.BLAST_MAX, ready = p.blasts > 0 && p.charge <= 0 && !g.blast, sx = 316, sy = 27;
@@ -416,7 +416,7 @@ function drawHUD(ctx, g, set, now) {
   const chip = (label, col, frac) => { ctx.fillStyle = "rgba(18,12,40,0.8)"; roundRect(ctx, chipX, 14, 128, 26, 13); ctx.fill(); ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.stroke();
     ctx.strokeStyle = col; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(chipX + 13, 27, 7, -Math.PI / 2, -Math.PI / 2 + TAU * frac); ctx.stroke(); txt(ctx, label, chipX + 26, 32, 13, col); chipX += 136; };
   if (p.shield > 0) chip("Shield " + p.shield.toFixed(1) + "s", "#9ff7c4", p.shield / p.shieldMax);
-  if (p.bullet) { const pu = BULLET_POWERUPS[p.bullet.kind]; chip(pu.name.split(" ")[0] + " ×2 " + p.bullet.t.toFixed(1) + "s", pu.color, p.bullet.t / POWERUP_TIME); }
+  if (p.bullet) { const pu = BULLET_POWERUPS[p.bullet.kind]; chip(pu.name.split(" ")[0] + " ×" + powerupMultFor(g) + " " + p.bullet.t.toFixed(1) + "s", pu.color, p.bullet.t / POWERUP_TIME); }
   txt(ctx, g.score.toLocaleString(), W - 86, 36, 26, "#ffe08a", "right", 800);
   if (g.mode === "endless") {
     const wave = Math.floor(g.t / EndlessRules.WAVE_EVERY), nx = EndlessRules.WAVE_EVERY - (g.t % EndlessRules.WAVE_EVERY);
