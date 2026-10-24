@@ -103,9 +103,10 @@ function campaignHits(g, def, elite) {
   const tier = enemyTier(def), m = EndlessRules.minuteMult(g.t);
   if (tier === 1 && !elite) return Math.min(5, m);
   const base = def.armored ? def.hp : tier === 2 ? 2 : 4, levelF = 1 + Math.floor((g.level - 1) / 20) * 0.25;
-  return Math.ceil(base * (elite ? 2 : 1) * m * levelF - 1e-9);
+  const cap = def.move === "rush" && !elite ? 10 : 15;   // fast enemies max 10 hits; big/armored/elite max 15
+  return Math.min(cap, Math.ceil(base * (elite ? 2 : 1) * m * levelF - 1e-9));
 }
-const ENEMY_CAP = [70, 100, 130];   // most enemies on screen at once (by graphics level) — keeps big Endless stages smooth
+const ENEMY_CAP = [50, 50, 50];   // at most 50 enemies on screen, the same on every device so ranked runs stay fair
 function spawnEnemy(g, type, y, x, o = {}) {
   const def = ENEMIES[type], elite = !!o.elite;
   const campHp = g.mode === "campaign" && o.hp === undefined ? campaignHits(g, def, elite) : null;
@@ -385,6 +386,7 @@ function updateGame(g, dt, input) {
 
   if (g.queue.length) for (let i = g.queue.length - 1; i >= 0; i--) {
     const q = g.queue[i];
+    if (q.at <= g.t && !q.obs && g.enemies.length >= ENEMY_CAP[0]) continue;   // Campaign: wait for room (max 50 on screen)
     if (q.at <= g.t) { if (q.obs) spawnObstacle(g, q.obs); else spawnEnemy(g, q.type, q.y, undefined, { elite: q.elite }); g.queue.splice(i, 1); }
   }
 
@@ -452,7 +454,7 @@ function updateTimedPickups(g) {
   g.tp = g.tp || { sh: 0, bl: 0 };
   const S = EndlessRules, T = g.tp;
   while (30 + T.sh * S.SHIELD_EVERY <= g.t) { const k = T.sh++; g.pickups.push({ x: W + 20, y: 40 + (0.25 + (k % 3) * 0.25) * (H - 80), kind: "shield", t: 0, vy: 0, pid: g.mode === "endless" ? "sh" + k : undefined }); }
-  while (10 + T.bl * S.BLAST_EVERY <= g.t) { const k = T.bl++; g.pickups.push({ x: W + 20, y: 40 + (0.3 + (k % 4) * 0.13) * (H - 80), kind: "blast", t: 0, vy: 0, pid: g.mode === "endless" ? "bl" + k : undefined }); }
+  while (15 + T.bl * S.BLAST_EVERY <= g.t) { const k = T.bl++; g.pickups.push({ x: W + 20, y: 40 + (0.3 + (k % 4) * 0.13) * (H - 80), kind: "blast", t: 0, vy: 0, pid: g.mode === "endless" ? "bl" + k : undefined }); }
 }
 function updateCampaignFlow(g, dt) {
   const p = g.player;

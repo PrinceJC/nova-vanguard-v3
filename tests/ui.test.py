@@ -94,7 +94,7 @@ async def main():
         for i in range(5):
             await pg.evaluate("()=>{const g=window.__lumi.game(); g.player.inv=0; g.player.shield=0; hurtPlayer(g);}"); await pg.wait_for_timeout(1250)
         await pg.keyboard.up("Space"); await pg.wait_for_timeout(3000)
-        ok("Verified and ranked" in await pg.inner_text(".result"), "endless run verified by the server rules (v6)")
+        ok("Verified and ranked" in await pg.inner_text(".result"), "endless run verified by the server rules (v7)")
         res_txt = await pg.inner_text(".result"); ok("Best score" in res_txt and "Longest survival" in res_txt, "results show best score and longest survival")
         await pg.click("text=Play again"); await pg.wait_for_timeout(1200)
         bst = await pg.evaluate("()=>window.__lumi.game().best"); verified = await pg.evaluate("()=>window.__fake.db.runs.filter(r=>r.status==='valid'&&r.id.startsWith('run')).map(r=>r.score)")

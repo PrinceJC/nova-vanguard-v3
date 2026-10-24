@@ -5,11 +5,12 @@
   if (typeof module === "object" && module.exports) module.exports = m; else root.EndlessRules = m;
 })(typeof self !== "undefined" ? self : this, function () {
   "use strict";
-  const VERSION = 6;
+  const VERSION = 7;
   const PLAYER_HP = 3, INV_MIN = 0.9, BLAST_CD = 14, FIRE_INT = 0.15, BLAST_DMG = 10;
   const PICKUP_LIFE = 30, ENTRY_MIN = 0.15, MAX_LIFE = 45;
   const TIER_SHOTS = [0, 1, 3, 6], TIER_DPS = TIER_SHOTS.map((n) => n / FIRE_INT), MAX_TIER_BONUS = 1000;
-  const POINTS_PER_TIER = 5, SHIELD_EVERY = 60, SHIELD_FIRST = 30, BLAST_EVERY = 20, BLAST_FIRST = 10;
+  const POINTS_PER_TIER = 5, SHIELD_EVERY = 60, SHIELD_FIRST = 30, BLAST_EVERY = 15, BLAST_FIRST = 15;
+  const MAX_ON_SCREEN = 50, MAX_STAGE = 4, HIT_CAP = { n: 5, f: 10, a: 15 };   // stages stop growing at 20 min
   const UPGRADES = [];   // weapon upgrades come only from defeated elites
   const PICK_POINTS = {};   // no point pickups (diamonds removed); max-tier weapon pickups give MAX_TIER_BONUS
   const POWERUPS = ["comet", "nova", "prism"];
@@ -42,15 +43,19 @@
   // ---------------- difficulty curves
   // durability: ×1 under 1 min, ×2 at 1–2 min … ×5 from 4 min (basic enemies capped at 5 hits)
   function minuteMult(t) { return Math.min(5, 1 + Math.floor(t / 60)); }
-  // five-minute stages: enemy count ×2 per stage (capped at 32×), speed ×1.5 per stage, non-basic durability ×1.5 per stage
+  // five-minute stages (growth stops at 20 min): enemy count ×2 per stage (max 16×), speed +25% per stage,
+  // non-basic durability ×1.5 per stage. Hit caps: basic 5, fast 10, big/armored/elite 15.
   function stageOf(t) { return Math.floor(t / 300); }
-  function pow15(s) { let v = 1; for (let i = 0; i < s; i++) v *= 1.5; return v; }   // exact for small s (3^s / 2^s)
-  function countMult(t) { return Math.min(32, 1 << Math.min(5, stageOf(t))); }
-  function speedAt(t) { const s = stageOf(t), f = (t - s * 300) / 300; return pow15(s) * (1 + 0.2 * f); }
+  function capStage(t) { return Math.min(MAX_STAGE, stageOf(t)); }
+  function pow15(s) { let v = 1; for (let i = 0; i < s; i++) v *= 1.5; return v; }     // exact (3^s / 2^s)
+  function pow125(s) { let v = 1; for (let i = 0; i < s; i++) v *= 1.25; return v; }   // exact (5^s / 4^s)
+  function countMult(t) { return 1 << capStage(t); }
+  function speedAt(t) { const s = capStage(t), f = stageOf(t) >= MAX_STAGE ? 1 : (t - s * 300) / 300; return pow125(s) * (1 + 0.2 * f); }
   function hitsFor(type, t, elite) {
     const st = STATS[type], base = st[0] * (elite ? 2 : 1);
-    if (st[3] === "n" && !elite) return Math.min(5, base * minuteMult(t));
-    return Math.ceil(base * minuteMult(t) * pow15(stageOf(t)) - 1e-9);
+    if (st[3] === "n" && !elite) return Math.min(HIT_CAP.n, base * minuteMult(t));
+    const cap = elite ? HIT_CAP.a : HIT_CAP[st[3]];
+    return Math.min(cap, Math.ceil(base * minuteMult(t) * pow15(capStage(t)) - 1e-9));
   }
   function pointsFor(type, elite) { return POINTS_PER_TIER * (STATS[type][2] + (elite ? 2 : 0)); }
   const STEP_SECONDS = 20, STEP_FACTOR = 0.92, GAP_START = 3.0, GAP_MIN = 0.9, WAVE_EVERY = 20, LANES = 8;
@@ -231,7 +236,7 @@
     return { ok: true, score: Math.round(score), kills: kills.length, elites, survival: end };
   }
 
-  return { VERSION, STATS, POOL, POWERUPS, UPGRADES, TIER_SHOTS, FIRE_INT, MAX_TIER_BONUS, PLAYER_HP, BLAST_CD, BLAST_DMG, PICKUP_LIFE, PICK_POINTS,
+  return { VERSION, MAX_ON_SCREEN, HIT_CAP, MAX_STAGE, STATS, POOL, POWERUPS, UPGRADES, TIER_SHOTS, FIRE_INT, MAX_TIER_BONUS, PLAYER_HP, BLAST_CD, BLAST_DMG, PICKUP_LIFE, PICK_POINTS,
     WAVE_EVERY, STEP_SECONDS, SHIELD_EVERY, BLAST_EVERY, rng, hash01, createSchedule, waveSpawns, timedPickupsUntil, newDropState, dropFor, milestonePoints, validate,
-    spawnGap, speedAt, threatLevel, minuteMult, stageOf, countMult, hitsFor, pointsFor, pow15 };
+    spawnGap, speedAt, threatLevel, minuteMult, stageOf, capStage, countMult, hitsFor, pointsFor, pow15, pow125 };
 });
