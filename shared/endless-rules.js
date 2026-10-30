@@ -5,17 +5,19 @@
   if (typeof module === "object" && module.exports) module.exports = m; else root.EndlessRules = m;
 })(typeof self !== "undefined" ? self : this, function () {
   "use strict";
-  const VERSION = 11;
+  const VERSION = 13;
   const PLAYER_HP = 3, INV_MIN = 0.9, BLAST_CD = 14, FIRE_INT = 0.15, BLAST_DMG = 10;
   const PICKUP_LIFE = 30, ENTRY_MIN = 0.15, MAX_LIFE = 45;
-  const TIER_SHOTS = [0, 1, 3, 6], TIER_DPS = TIER_SHOTS.map((n) => n / FIRE_INT), MAX_TIER_BONUS = 1000;
+  // fire rate rises with weapon upgrades: 0.22 s between attacks at 1 shot, 0.17 s at 3, 0.13 s at 6
+  const TIER_SHOTS = [0, 1, 3, 6], TIER_INT = [0, 0.22, 0.17, 0.13], TIER_DPS = TIER_SHOTS.map((n, i) => (i ? n / TIER_INT[i] : 0)), MAX_TIER_BONUS = 1000;
   const POINTS_PER_TIER = 5, SHIELD_EVERY = 60, SHIELD_FIRST = 30, BLAST_EVERY = 30, BLAST_FIRST = 30;
   const BLAST_START = 1, BLAST_MAX = 3, BLAST_GAP = 1.0;   // stored blast charges: start with 1, hold up to 3, pickups add 1
   const MAX_ON_SCREEN = 50, MAX_STAGE = 4, HIT_CAP = { n: 5, f: 10, a: 15 };   // stages stop growing at 20 min
   const POWERUP_TIME = 10, POWERUP_DMG = 2;
   // Endless bosses: one arrives every 30,000 points; regular spawns pause (and the screen is cleared) during the fight
-  const BOSS_EVERY_POINTS = 30000, BOSS_ENTRY = 1.8;
-  function bossHp(idx, t) { return Math.ceil(320 * (1 + 0.6 * idx) * (1 + capStageT(t))); }
+  const BOSS_EVERY_POINTS = 30000, BOSS_EVERY_WAVES = 15, BOSS_ENTRY = 1.8;
+  function bossClock(idx) { return (idx + 1) * BOSS_EVERY_WAVES * 20; }   // schedule-clock time of boss idx
+  function bossHp(idx, t) { return Math.ceil(500 * (1 + 0.2 * idx) * (1 + capStageT(t))); }
   function bossBonus(idx) { return 3000 + 1000 * idx; }
   function capStageT(t) { return Math.min(4, Math.floor(t / 300)); }   // bullet power-ups (Comet / Nova / Prism) last 10 s and double damage
   const UPGRADES = [];   // weapon upgrades come only from defeated elites
@@ -64,7 +66,7 @@
   // Blast pickup interval tightens as the crowds grow: 30 s, then 10 s at 5 min, 8 s at 10, 6 s at 15, 5 s from 20
   const BLAST_INTERVALS = [30, 10, 8, 6, 5];
   function blastInterval(t) { return BLAST_INTERVALS[capStage(t)]; }
-  function speedAt(t) { const s = capStage(t), f = stageOf(t) >= MAX_STAGE ? 1 : (t - s * 300) / 300; return pow125(s) * (1 + 0.2 * f); }
+  function speedAt(t, versus) { const w = Math.min(60, Math.floor(t / 20)); return (1 + 0.035 * w) * (versus ? 1.3 : 1); }
   function hitsFor(type, t, elite) {
     const st = STATS[type], base = st[0] * (elite ? 2 : 1);
     if (st[3] === "n" && !elite) return Math.min(HIT_CAP.n, base * minuteMult(t));
@@ -80,9 +82,9 @@
 
   // Wave n at 20·n s: grows each time; staggered groups of four; two adjacent lanes always open; darts spaced apart.
   // After 5 min every enemy is repeated countMult(t) times, spread further over time in open lanes.
-  function waveSpawns(seed, n) {
+  function waveSpawns(seed, n, versus) {
     const r = rng((seed ^ Math.imul(n + 7, 0x85ebca6b)) >>> 0), t0 = n * WAVE_EVERY, mult = countMult(t0);
-    const count = Math.min(34, 6 + n * 2), armoredShare = n >= 2 ? Math.min(0.3, 0.06 * n) : 0, fastShare = n >= 3 ? Math.min(0.2, 0.04 * n) : 0;
+    const count = versus ? Math.min(60, 13 + n * 5) : Math.min(50, 10 + n * 3), armoredShare = n >= 2 ? Math.min(0.3, 0.06 * n) : 0, fastShare = n >= 3 ? Math.min(0.2, 0.04 * n) : 0;
     const maxTier = t0 >= 270 ? 4 : t0 >= 180 ? 3 : t0 >= 100 ? 2 : 1;
     const std = POOL.filter((p) => STATS[p[0]][3] === "n" && p[1] <= t0).map((p) => p[0]);
     const gapA = Math.floor(r() * (LANES - 1)), open = [];
@@ -107,8 +109,8 @@
     return out;
   }
 
-  function createSchedule(seed) {
-    const r = rng(seed);
+  function createSchedule(seed, opts = {}) {
+    const r = rng(seed), versus = !!opts.versus;
     let packT = 2, id = 0, nextWave = 1;
     const buf = [];
     function pack() {
@@ -138,12 +140,12 @@
         buf.push(finish({ ...m, id: ++id }));
         for (let c = 1; c < mult; c++) buf.push(finish({ id: ++id, t: m.t + c * 0.33, type: m.type, y: (typeof m.y === "number" ? 0.12 + ((m.y - 0.12 + c * 0.29) % 0.76) : m.y) }));
       }
-      packT = t + spawnGap(t) + groups * 0.35;
+      packT = t + spawnGap(t) * (versus ? 0.7 : 1) + groups * 0.35;
     }
     return {
       take(untilT) {
         while (packT <= untilT + 12) pack();
-        while (nextWave * WAVE_EVERY <= untilT + 12) for (const s of waveSpawns(seed, nextWave++)) buf.push(s);
+        while (nextWave * WAVE_EVERY <= untilT + 12) for (const s of waveSpawns(seed, nextWave++, versus)) buf.push(s);
         buf.sort((a, b) => a.t - b.t || a.id - b.id);
         const out = [];
         while (buf.length && buf[0].t <= untilT) out.push(buf.shift());
@@ -251,33 +253,26 @@
         if (!blasts.some((b) => t >= b && t <= b + 1.5)) return fail("An enemy was credited to a special blast that didn’t happen.");
       } else {
         eff = Math.max(0, eff);
-        const mr = maxRate(s.rt, t), need = Math.max(0, eff - mr * FIRE_INT) / mr, have = t - s.rt;
+        const mr = maxRate(s.rt, t), need = Math.max(0, eff - mr * TIER_INT[3]) / mr, have = t - s.rt;
         if (have + 0.06 < need) return fail("An enemy was defeated faster than the cannon can fire.");
         dmgUsed += eff;
         if (dmgUsed > capUntil(t) * 1.05 + 8) return fail("More damage was dealt than the cannon can produce.");
       }
       score += s.score; if (s.elite) elites++;
     }
-    { // rebuild the score timeline to check when each boss was due
-      const evs = [];
-      for (const [t, id] of kills) evs.push([t, byId.get(id).score]);
-      for (let m = 1; m * 60 <= end; m++) evs.push([m * 60, 250 * m]);
-      let ups = 0; for (const [t, pid] of picks) { const mm = /^d(\d+)$/.exec(pid); if (mm && drops.get(+mm[1]) === "up") { if (ups >= 2) evs.push([t, MAX_TIER_BONUS]); ups++; } }
-      bosses.forEach((b, i) => { if (b[1] !== null) evs.push([b[1], bossBonus(i)]); });
-      evs.sort((a, b) => a[0] - b[0]);
-      let cum = 0, k = 0; const crossing = [];
-      for (const [t, pts] of evs) { cum += pts; while (cum >= (crossing.length + 1) * BOSS_EVERY_POINTS) crossing.push(t); }
+    { // each boss arrives when the schedule clock reaches 15, 30, 45 … waves; kills must be possible; bonuses counted
       for (let i = 0; i < bosses.length; i++) {
-        const due = Math.max(crossing[i] ?? Infinity, i ? bosses[i - 1][1] : 0);
-        if (!(bosses[i][0] >= due - 0.02 && bosses[i][0] <= due + 0.15)) return fail("A boss appeared at the wrong time.");
+        const c = bosses[i][0] - pausedBefore(bosses[i][0]);
+        if (!(c >= bossClock(i) - 0.02 && c <= bossClock(i) + 0.12)) return fail("A boss appeared at the wrong time.");
         if (bosses[i][1] !== null) {
-          const s0 = bosses[i][0], e0 = bosses[i][1], hpB = bossHp(i, s0), bl = blasts.filter((b) => b >= s0 && b <= e0).length;
+          const s0 = bosses[i][0], e0 = bosses[i][1], hpB = bossHp(i, s0), bl = blasts.filter((x) => x >= s0 && x <= e0).length;
           const need = Math.max(0, hpB - bl * 14) / maxRate(s0, e0);
           if (e0 - s0 - BOSS_ENTRY + 0.15 < need) return fail("A boss was defeated faster than the cannon can fire.");
           score += bossBonus(i);
         }
       }
-      if (crossing.length > bosses.length && crossing[bosses.length] < end - 0.2 && (bosses.length === 0 || bosses[bosses.length - 1][1] !== null)) return fail("A boss that was due never appeared.");
+      const lastDone = bosses.length === 0 || bosses[bosses.length - 1][1] !== null;
+      if (lastDone && clockEnd > bossClock(bosses.length) + 0.2) return fail("A boss that was due never appeared.");
     }
     let hp = PLAYER_HP, lastHit = -10, dead = false;
     for (const t of hits) {   // no healing exists: exactly three hits end the run
@@ -291,7 +286,7 @@
     return { ok: true, score: Math.round(score), kills: kills.length, elites, survival: end };
   }
 
-  return { VERSION, BOSS_EVERY_POINTS, BOSS_ENTRY, bossHp, bossBonus, BLAST_START, BLAST_MAX, BLAST_FIRST, MAX_ON_SCREEN, HIT_CAP, MAX_STAGE, STATS, POOL, POWERUPS, UPGRADES, TIER_SHOTS, FIRE_INT, MAX_TIER_BONUS, PLAYER_HP, BLAST_CD, BLAST_DMG, PICKUP_LIFE, PICK_POINTS,
+  return { VERSION, TIER_INT, BOSS_EVERY_WAVES, bossClock, BOSS_EVERY_POINTS, BOSS_ENTRY, bossHp, bossBonus, BLAST_START, BLAST_MAX, BLAST_FIRST, MAX_ON_SCREEN, HIT_CAP, MAX_STAGE, STATS, POOL, POWERUPS, UPGRADES, TIER_SHOTS, FIRE_INT, MAX_TIER_BONUS, PLAYER_HP, BLAST_CD, BLAST_DMG, PICKUP_LIFE, PICK_POINTS,
     WAVE_EVERY, STEP_SECONDS, SHIELD_EVERY, BLAST_EVERY, rng, hash01, createSchedule, waveSpawns, timedPickupsUntil, newDropState, dropFor, milestonePoints, validate,
     spawnGap, speedAt, threatLevel, minuteMult, stageOf, capStage, countMult, damageMult, powerupMult, blastInterval, BLAST_INTERVALS, POWERUP_TIME, POWERUP_DMG, hitsFor, pointsFor, pow15, pow125 };
 });

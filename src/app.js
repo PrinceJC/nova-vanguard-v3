@@ -67,34 +67,25 @@ function AvatarPreview({ id, av, w = 298, h: hh = 150 }) {
 }
 
 // ============================================================ touch controls
+// Fixed joystick: the base never moves. Direction = thumb position relative to the stick's centre (clamped),
+// so swiping can't drag the joystick around. Touch anywhere in the left zone; the knob shows the input.
 function TouchControls({ input, game, sens = 1 }) {
-  const base = useRef(null), knob = useRef(null), id = useRef(null), origin = useRef({ x: 0, y: 0 });
+  const base = useRef(null), knob = useRef(null), id = useRef(null);
   const [cd, setCd] = useState(0);
   useEffect(() => { const t = setInterval(() => { const g = game.current; setCd(g ? g.player.blasts : 0); }, 150); return () => clearInterval(t); }, []);
-  const start = (e) => {
-    const t = e.changedTouches[0]; id.current = t.identifier;
-    const r = e.currentTarget.getBoundingClientRect(), sc = r.width / 470;
-    origin.current = { x: t.clientX, y: t.clientY, sc };
-    if (base.current) { base.current.style.left = (t.clientX - r.left) / sc - 60 + "px"; base.current.style.top = (t.clientY - r.top) / sc - 60 + "px"; base.current.style.opacity = 1; }
-    e.preventDefault();
+  const apply = (t) => {
+    const r = base.current.getBoundingClientRect(), sc = r.width / 140, cx = r.left + r.width / 2, cy = r.top + r.height / 2, max = 52 / sens;
+    let dx = (t.clientX - cx) / sc, dy = (t.clientY - cy) / sc; const m = Math.hypot(dx, dy);
+    if (m > max) { dx = (dx / m) * max; dy = (dy / m) * max; }
+    const mag = Math.hypot(dx, dy), dead = 6;
+    input.current.joyX = mag < dead ? 0 : dx / max; input.current.joyY = mag < dead ? 0 : dy / max;
+    if (knob.current) knob.current.style.transform = `translate(${dx * (52 / max)}px, ${dy * (52 / max)}px)`;
   };
-  const move = (e) => {
-    for (const t of e.changedTouches) if (t.identifier === id.current) {
-      const o = origin.current, max = 50 / sens; let dx = (t.clientX - o.x) / o.sc, dy = (t.clientY - o.y) / o.sc; const l = Math.hypot(dx, dy);
-      if (l > max * 1.35) { // floating stick: the base follows a thumb that slides far, so direction changes stay instant
-        const k = (l - max) / l; o.x += (t.clientX - o.x) * k; o.y += (t.clientY - o.y) * k;
-        if (base.current) { base.current.style.left = parseFloat(base.current.style.left) + dx * k + "px"; base.current.style.top = parseFloat(base.current.style.top) + dy * k + "px"; }
-        dx *= 1 - k; dy *= 1 - k;
-      }
-      if (Math.hypot(dx, dy) > max) { const m = Math.hypot(dx, dy); dx = (dx / m) * max; dy = (dy / m) * max; }
-      const mag = Math.hypot(dx, dy); input.current.joyX = mag < 5 ? 0 : dx / max; input.current.joyY = mag < 5 ? 0 : dy / max;
-      if (knob.current) knob.current.style.transform = `translate(${dx}px, ${dy}px)`;
-    }
-    e.preventDefault();
-  };
-  const end = (e) => { for (const t of e.changedTouches) if (t.identifier === id.current) { id.current = null; input.current.joyX = 0; input.current.joyY = 0; if (knob.current) knob.current.style.transform = "translate(0,0)"; if (base.current) base.current.style.opacity = 0.45; } };
+  const start = (e) => { const t = e.changedTouches[0]; id.current = t.identifier; apply(t); e.preventDefault(); };
+  const move = (e) => { for (const t of e.changedTouches) if (t.identifier === id.current) apply(t); e.preventDefault(); };
+  const end = (e) => { for (const t of e.changedTouches) if (t.identifier === id.current) { id.current = null; input.current.joyX = 0; input.current.joyY = 0; if (knob.current) knob.current.style.transform = "translate(0px, 0px)"; } e.preventDefault(); };
   return h(React.Fragment, null,
-    h("div", { className: "joyzone", onTouchStart: start, onTouchMove: move, onTouchEnd: end, onTouchCancel: end }, h("div", { className: "joybase", ref: base }, h("div", { className: "joyknob", ref: knob }))),
+    h("div", { className: "joyzone", onTouchStart: start, onTouchMove: move, onTouchEnd: end, onTouchCancel: end }, h("div", { className: "joybase fixed", ref: base }, h("div", { className: "joyknob", ref: knob }))),
     h("button", { className: "specialbtn" + (cd > 0 ? " ready" : ""), "aria-label": `Special blast, ${cd} of 3 stored`, onTouchStart: (e) => { e.preventDefault(); input.current.specialPressed = true; } },
       h("span", { className: "bl" }, "Blast"), h("span", { className: "pips" }, [0, 1, 2].map((i) => h("i", { key: i, className: i < cd ? "on" : "" })))));
 }

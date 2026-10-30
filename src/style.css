@@ -285,3 +285,7 @@ body.game { position: fixed; inset: 0; overflow: hidden; }
 .roomcode { font-family: 'Exo 2', monospace; font-size: 46px; font-weight: 800; letter-spacing: 8px; color: #8ff7ef; margin: 6px 0; text-align: center; }
 .countdown { font-family: 'Exo 2', sans-serif; font-size: 120px; font-weight: 800; color: #fff; text-shadow: 0 6px 0 #120c30, 0 0 40px rgba(94,242,242,.6); }
 .coinrow td { color: #ffe08a; font-weight: 800; }
+
+/* fixed joystick: always in the same spot, bottom-left of the left touch zone */
+.joybase.fixed { position: absolute; left: 46px; top: auto; bottom: 34px; width: 140px; height: 140px; margin: 0; opacity: .92; border-radius: 50%; background: radial-gradient(circle, rgba(255,255,255,.10), rgba(255,255,255,.04) 60%, rgba(160,190,255,.14)); border: 3px solid rgba(160,190,255,.45); box-shadow: inset 0 0 18px rgba(0,0,0,.35); transition: none; }
+.joybase.fixed .joyknob { position: absolute; left: 50%; top: 50%; width: 62px; height: 62px; margin: -31px 0 0 -31px; border-radius: 50%; background: radial-gradient(circle at 40% 35%, #ffffff, #b8f4ff 55%, #5ac8e0); border: 3px solid #1a3a5a; box-shadow: 0 4px 10px rgba(0,0,0,.35); transition: transform .05s linear; }

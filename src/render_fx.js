@@ -475,9 +475,10 @@ function drawHUD(ctx, g, set, now) {
   if (p.bullet) { const pu = BULLET_POWERUPS[p.bullet.kind]; chip(pu.name.split(" ")[0] + " ×" + powerupMultFor(g) + " " + p.bullet.t.toFixed(1) + "s", pu.color, p.bullet.t / POWERUP_TIME); }
   txt(ctx, g.score.toLocaleString(), W - 86, 36, 26, "#ffe08a", "right", 800);
   if (g.mode === "endless") {
-    const wave = Math.floor(g.t / EndlessRules.WAVE_EVERY), nx = EndlessRules.WAVE_EVERY - (g.t % EndlessRules.WAVE_EVERY);
+    const clk = g.rec ? endlessClock(g) : g.t, wave = Math.floor(clk / EndlessRules.WAVE_EVERY), nx = EndlessRules.WAVE_EVERY - (clk % EndlessRules.WAVE_EVERY), bossFight = g.boss && !g.boss.dying;
+    const bossIn = g.versus ? null : EndlessRules.BOSS_EVERY_WAVES * (g.bossIdx + 1) - wave;
     txt(ctx, `Wave ${wave} · ${g.kills} defeated`, W - 86, 58, 14, "#c9bde8", "right");
-    txt(ctx, `Next wave in ${Math.ceil(nx)}s`, W - 86, 77, 13, "#ff9ad5", "right");
+    txt(ctx, bossFight ? "Boss fight!" : `Next wave in ${Math.ceil(nx)}s` + (bossIn ? ` · boss in ${bossIn} wave${bossIn === 1 ? "" : "s"}` : ""), W - 86, 77, 13, "#ff9ad5", "right");
     // personal records: best score and longest survival, turning gold when beaten during this run
     const best = g.best, bs = best ? best.score : 0, bt = best ? best.ms / 1000 : 0;
     const newScore = best ? g.score > bs : g.score > 0, newTime = best ? g.t > bt : g.t > 0;
@@ -486,8 +487,8 @@ function drawHUD(ctx, g, set, now) {
     txt(ctx, "Best score", W - 276, 103, 12, "#a8b4e8"); txt(ctx, best ? (newScore ? g.score : bs).toLocaleString() : "—", W - 96, 103, 14, newScore ? "#ffd34f" : "#ffe08a", "right", 800);
     txt(ctx, "Longest run", W - 276, 121, 12, "#a8b4e8"); txt(ctx, best ? fmtTime(newTime ? g.t : bt) : "—", W - 96, 121, 14, newTime ? "#ffd34f" : "#c8f0ff", "right", 800);
     if (best && (newScore || newTime) && g.state === "endless") txt(ctx, "New best!", W - 186, 142, 13, "#ffd34f", "center", 900);
-    if (nx <= 2.2 && g.t > 1) { const k = set.reduced ? 1 : 0.6 + 0.4 * Math.sin(now / 90); ctx.globalAlpha = k; ctx.fillStyle = "rgba(255,63,122,0.16)"; ctx.fillRect(0, H / 2 - 44, W, 88);
-      txt(ctx, `Wave ${wave + 1} incoming!`, W / 2, H / 2 + 12, 40, "#ffd1e6", "center", 900); ctx.globalAlpha = 1; }
+    if (!bossFight && nx <= 2.2 && g.t > 1) { const k = set.reduced ? 1 : 0.6 + 0.4 * Math.sin(now / 90); ctx.globalAlpha = k; ctx.fillStyle = "rgba(255,63,122,0.16)"; ctx.fillRect(0, H / 2 - 44, W, 88);
+      txt(ctx, bossIn === 1 ? "Boss incoming!" : `Wave ${wave + 1} incoming!`, W / 2, H / 2 + 12, 40, "#ffd1e6", "center", 900); ctx.globalAlpha = 1; }
   }
 
   if (g.boss && !g.boss.dying) {

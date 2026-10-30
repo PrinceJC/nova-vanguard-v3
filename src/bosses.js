@@ -437,6 +437,8 @@ function endlessBossDef(kind) {
 }
 function makeEndlessBoss(g, idx) {
   const kind = ENDLESS_BOSS_KINDS[idx % ENDLESS_BOSS_KINDS.length], def = endlessBossDef(kind), hp = EndlessRules.bossHp(idx, g.t);
+  def.rest = def.rest.map((r) => Math.max(0.35, r * (1 - 0.06 * idx)));   // each later boss rests less between attacks
+  if (idx >= ENDLESS_BOSS_KINDS.length) def.name = def.name + " " + ["II", "III", "IV", "V"][Math.min(3, Math.floor(idx / ENDLESS_BOSS_KINDS.length) - 1)];
   const b = { def, x: W + def.size / 2 + 60, y: H / 2, hx: W - 200, hp, max: hp, phase: 1, t: 0, atk: null, atkT: 0, rest: 1.0, idx: 0, endlessIdx: idx,
     tm: {}, trans: 0, flash: 0, clink: 0, entering: true, parts: [], hits: [], body: [], open: false, dying: false, dieT: 0, alpha: 1, lock: false, tele: null, baseY: H / 2 };
   def.layout(b, g); return b;

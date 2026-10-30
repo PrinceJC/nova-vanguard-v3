@@ -2,7 +2,9 @@ import asyncio, json
 from playwright.async_api import async_playwright
 SEED = {"users":[{"id":"u1","email":"a@x.com","password":"pw123456x","confirmed":True}],"profiles":[{"id":"u1","username":"Pilot","avatar":"lumi","created_at":"2026-10-01T00:00:00Z"}],
         "saves":[{"user_id":"u1","data":{"campaign":{"unlocked":20,"completed":[True]*19+[False]*81}}}],"runs":[],"session":{"access_token":"tok-u1","user":{"id":"u1","email":"a@x.com"}}}
+import os
 DEVICES = [("iPhone landscape", 844, 390, 3), ("iPad landscape", 1180, 820, 2), ("Android tablet", 1280, 800, 2)]
+if os.environ.get("ONLY"): DEVICES = [d for d in DEVICES if d[0].startswith(os.environ["ONLY"])]
 def ok(c, m): print(("  PASS " if c else "  FAIL ") + m)
 async def main():
     async with async_playwright() as p:
@@ -26,11 +28,13 @@ async def main():
             cdp = await ctx.new_cdp_session(pg)
             box = await pg.locator(".specialbtn").bounding_box(); bx, by = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
             y0 = await pg.evaluate("()=>window.__lumi.game().player.y")
-            sx, sy = w * 0.15, h * 0.7
+            jb = await pg.locator(".joybase").bounding_box(); sx, sy = jb["x"] + jb["width"] / 2, jb["y"] + jb["height"] / 2
             await cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": sx, "y": sy, "id": 1}]})
             for i in range(1, 12):
-                await cdp.send("Input.dispatchTouchEvent", {"type": "touchMove", "touchPoints": [{"x": sx, "y": sy - i * 6, "id": 1}]}); await pg.wait_for_timeout(30)
-            await cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": sx, "y": sy - 66, "id": 1}, {"x": bx, "y": by, "id": 2}]})
+                await cdp.send("Input.dispatchTouchEvent", {"type": "touchMove", "touchPoints": [{"x": sx - i * 9, "y": sy - i * 6, "id": 1}]}); await pg.wait_for_timeout(30)
+            jb2 = await pg.locator(".joybase").bounding_box()
+            ok(abs(jb2["x"] - jb["x"]) < 0.5 and abs(jb2["y"] - jb["y"]) < 0.5, "joystick stays in one place while swiping")
+            await cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": sx - 99, "y": sy - 66, "id": 1}, {"x": bx, "y": by, "id": 2}]})
             await pg.wait_for_timeout(700)
             st = await pg.evaluate("()=>{const g=window.__lumi.game(); const a=g.player.charge>0||g.blast; for(let i=0;i<40;i++) updateGame(g,1/60,{autofire:true}); return {y:g.player.y, cd:1-g.player.blasts, firing:g.player.firing && g.pbul.length>0, charged:a}}")
             await cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})

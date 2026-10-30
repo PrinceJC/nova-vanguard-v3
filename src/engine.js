@@ -2,7 +2,7 @@
 // ============================================================ constants & helpers
 const W = 960, H = 540, TAU = Math.PI * 2;
 const MAX_EBUL = 420, MAX_PBUL = 160;
-const SPECIAL_CD = 14, PLAYER_HP = 3, INV_TIME = 1.0, PLAYER_SPEED = 300, BLAST_CHARGE = 0.45, BLAST_SPEED = 1700, BLAST_MAX = 1150;
+const SPECIAL_CD = 14, PLAYER_HP = 3, INV_TIME = 1.0, PLAYER_SPEED = 360, BLAST_CHARGE = 0.45, BLAST_SPEED = 1700, BLAST_MAX = 1150;
 const CAMPAIGN_HP_CAP = 2, ENEMY_SCALE = 2.1, ELITE_SCALE = 1.5, FIRE_INT = EndlessRules.FIRE_INT, MAX_TIER_BONUS = EndlessRules.MAX_TIER_BONUS;
 // player art: 140 x 92 px (≈15% of playfield width incl. weapon, ≈17% of height); hitbox stays a 6 px core
 const PLAYER_ART_W = 150, PLAYER_ART_K = 150 / 104, PLAYER_HITBOX = 6;
@@ -73,7 +73,7 @@ function createGame(opts) {
   };
   g.muzzle = muzzleFor(g.avatar, g.av);
   if (endless) {
-    g.seed = opts.seed >>> 0; g.pending = []; g.nextBoss = EndlessRules.BOSS_EVERY_POINTS; g.bossIdx = 0; g.sched = EndlessRules.createSchedule(g.seed); g.dropState = EndlessRules.newDropState();
+    g.seed = opts.seed >>> 0; g.pending = []; g.nextBoss = EndlessRules.BOSS_EVERY_POINTS; g.bossIdx = 0; g.sched = EndlessRules.createSchedule(g.seed, { versus: g.versus }); g.dropState = EndlessRules.newDropState();
     g.rec = { v: EndlessRules.VERSION, kills: [], picks: [], hits: [], blasts: [], bosses: [], end: 0 };
     g.spawnMap = new Map(); g.upDone = {}; g.milestone = 0; g.elites = 0; g.theme = 0;
   }
@@ -114,7 +114,7 @@ function spawnEnemy(g, type, y, x, o = {}) {
   const base = Math.min(def.size * ENEMY_SCALE, def.armored ? 92 + def.armored * 8 : 105), k = base / def.size, size = base * (elite ? ELITE_SCALE : 1), er = def.r * k * (elite ? ELITE_SCALE : 1);
   const e = { type, def, size, r: er, x: x ?? W + size / 2 + 10, y: 0, y0: 0, hp: o.hp ?? campHp ?? def.hp, shield: o.shield ?? (def.shield || 0) * (g.mode === "campaign" ? 1 + Math.min(0.6, g.level * 0.006) : 1) * (elite ? 1.5 : 1),
     t: 0, st: "in", stT: 0, fireT: def.fire && def.fire.every ? rand(0.6, 1.4) : 0, flash: 0, flip: false, entered: false, burst: 0, burstT: 0, rot: 0, jumps: 0, kb: 0, sid: o.sid || 0, elite, score: o.score ?? 5 * (enemyTier(def) + (elite ? 2 : 0)) };
-  e.maxShield = e.shield; e.maxHp = e.hp; e.spd = g.mode === "endless" ? EndlessRules.speedAt(g.t) : 1;
+  e.maxShield = e.shield; e.maxHp = e.hp; e.spd = g.mode === "endless" ? EndlessRules.speedAt(g.t, g.versus) : 1;
   if (y === "top" || y === "bottom") { e.flip = y === "top"; e.y = y === "top" ? size / 2 + 2 : H - size / 2 - 2; }
   else { const amp = def.amp || 12; e.y = clamp(y, amp + size * 0.5 + 8, H - amp - size * 0.5 - 8); }
   e.y0 = e.y; e.stopX = rand(600, 840);
@@ -451,7 +451,7 @@ function updateGame(g, dt, input) {
     if (p.charge > 0) { p.charge -= dt; if (p.charge <= 0) { p.charge = 0; releaseBlast(g); } }
     p.fireCd -= dt;
     p.firing = (input.fire || input.autofire) && g.state !== "complete" && p.charge <= 0;
-    if (p.firing && p.fireCd <= 0) { p.fireCd = FIRE_INT; playerFire(g); }
+    if (p.firing && p.fireCd <= 0) { p.fireCd = EndlessRules.TIER_INT[p.tier]; playerFire(g); }   // faster with each weapon upgrade
     if (input.specialPressed) special(g);
   }
   input.specialPressed = false;
@@ -498,6 +498,7 @@ function updateTimedPickups(g) {
   g.tp = g.tp || { sh: 0, bl: 0 };
   const S = EndlessRules, T = g.tp;
   while (30 + T.sh * S.SHIELD_EVERY <= g.t) { const k = T.sh++; g.pickups.push({ x: W + 20, y: 40 + (0.25 + (k % 3) * 0.25) * (H - 80), kind: "shield", t: 0, vy: 0, pid: g.mode === "endless" ? "sh" + k : undefined }); }
+  if (g.versus) { T.pu = T.pu || 0; while (10 + T.pu * 10 <= g.t) { const k = T.pu++; g.pickups.push({ x: W + 20, y: 40 + (0.2 + (k % 5) * 0.15) * (H - 80), kind: S.POWERUPS[k % 3], t: 0, vy: 0 }); } }
   if (T.nextBl === undefined) T.nextBl = S.BLAST_FIRST;
   while (T.nextBl <= g.t) { const k = T.bl++; T.nextBl += S.blastInterval(T.nextBl); g.pickups.push({ x: W + 20, y: 40 + (0.3 + (k % 4) * 0.13) * (H - 80), kind: "blast", t: 0, vy: 0, pid: g.mode === "endless" ? "bl" + k : undefined }); }
 }
@@ -528,7 +529,7 @@ function updateCampaignFlow(g, dt) {
 function endlessClock(g) { let p = 0; for (const b of g.rec.bosses) p += (b[1] === null ? g.t : b[1]) - b[0]; return g.t - p; }
 function startEndlessBoss(g) {
   const idx = g.bossIdx++;
-  g.nextBoss += EndlessRules.BOSS_EVERY_POINTS;
+  g.diff = 1 + 0.08 * idx;   // later bosses attack faster
   for (const e of g.enemies) particle(g, e.x, e.y, "#c9bde8", 4, 90, 0.35);   // clear the field (no points) — boss fights are one-on-one
   g.enemies = []; g.ebul = []; g.hz = [];
   g.boss = makeEndlessBoss(g, idx);
@@ -541,7 +542,7 @@ function updateEndlessFlow(g, dt) {
   updateTimedPickups(g);
   const cap = ENEMY_CAP[g.quality ?? 2];
   if (g.boss && g.boss.dying && g.boss.dieT > 2.6) { g.boss = null; ev(g, "bossEnd", {}); }
-  if (!g.versus && (!g.boss || g.boss.dying) && g.score >= g.nextBoss) startEndlessBoss(g);
+  if (!g.versus && (!g.boss || g.boss.dying) && endlessClock(g) >= EndlessRules.bossClock(g.bossIdx)) startEndlessBoss(g);
   const bossAlive = g.boss && !g.boss.dying;
   const clock = endlessClock(g);
   if (!bossAlive) for (const s of g.sched.take(clock + 1.2)) g.pending.push(s);   // look ahead so fast enemies can be announced
@@ -553,13 +554,13 @@ function updateEndlessFlow(g, dt) {
     spawnEnemy(g, s.type, y, undefined, { hp: s.hp, shield: s.shield, sid: s.id, elite: s.elite, score: s.score });
   }
   for (const u of EndlessRules.UPGRADES) if (!g.upDone[u.id] && g.t >= u.t) { g.upDone[u.id] = true; g.pickups.push({ x: W + 20, y: 40 + u.y * (H - 80), kind: "up", t: 0, vy: 0, pid: u.id }); }
-  const nextWave = Math.floor(g.t / EndlessRules.WAVE_EVERY) + 1;
-  if (nextWave * EndlessRules.WAVE_EVERY - g.t <= 2 && g.warned !== nextWave) { g.warned = nextWave; ev(g, "sfx", { name: "warning" }); }
+  const clk = endlessClock(g), nextWave = Math.floor(clk / EndlessRules.WAVE_EVERY) + 1;
+  if (!(g.boss && !g.boss.dying) && nextWave * EndlessRules.WAVE_EVERY - clk <= 2 && g.warned !== nextWave) { g.warned = nextWave; ev(g, "sfx", { name: "warning" }); }
   const m = Math.floor(g.t / 60);
   if (m > g.milestone) { g.milestone = m; const pts = 250 * m; g.score += pts; floatText(g, W / 2, 110, `${m} min survived  +${pts}`, "#ffe08a"); ev(g, "sfx", { name: "clear" }); }
   const th = Math.floor(g.t / 120) % WORLDS.length;
   if (th !== g.theme) { g.theme = th; g.lv = { ...g.lv, pal: WORLDS[th].pal, bg: WORLDS[th].bg, world: WORLDS[th] }; }
-  g.diff = 1 + Math.min(g.t / 600, 1) * 0.25; g.fireDiff = 1 + Math.min(g.t / 600, 1) * 0.3;
+  if (!(g.boss && !g.boss.dying)) g.diff = 1 + Math.min(g.t / 600, 1) * 0.25; g.fireDiff = 1 + Math.min(g.t / 600, 1) * 0.3;
 }
 
 function collect(g, k) {

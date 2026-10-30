@@ -23,7 +23,14 @@ t("roster: 26 unique heroes incl. Nova (shield), winged, wand, skater, archer an
 t("firing artwork lines up with the projectile origin for every hero", () => { for (const a of AVATARS) { const [mx, my] = MUZZLES[a.cat];
   if (a.cat === "bow") { const idle = avatarSVG(a, "idle", "game"); assert(idle.includes('M44 41 L72 41') && mx === 72 && my === 41, a.id); assert(!avatarSVG(a, "fire", "game").includes('M44 41 L72 41'), a.id + " releases"); }
   else assert(avatarSVG(a, "fire", "game").includes(`<circle cx="${mx}" cy="${my}" r="2.6"`), a.id); } });
-t("hold-to-fire repeats the active pattern every fire interval", () => { const h = createGame({ mode: "campaign", level: 1, tier: 3, god: true }); h.state = "waves"; h.waveIdx = 99; let n = 0; for (let i = 0; i < 60; i++) { const before = h.pbul.length; updateGame(h, 1 / 60, { fire: true }); n += Math.max(0, h.pbul.length - before); } assert(n >= 36 && n % 6 === 0, n); });
+t("hold-to-fire repeats the active pattern every fire interval", () => { const h = createGame({ mode: "campaign", level: 1, tier: 3, god: true }); h.state = "waves"; h.waveIdx = 99; let n = 0; for (let i = 0; i < 60; i++) { const before = h.pbul.length; updateGame(h, 1 / 60, { fire: true }); n += Math.max(0, h.pbul.length - before); } assert(n >= 40, n); });
+t("fire rate starts slow and speeds up with each weapon upgrade (0.22 s → 0.17 s → 0.13 s)", () => {
+  const vol = []; for (const tier of [1, 2, 3]) { const h = createGame({ mode: "campaign", level: 1, tier, god: true }); h.state = "waves"; h.waveIdx = 99; let v = 0;
+    for (let i = 0; i < 120; i++) { const before = h.pbul.length; updateGame(h, 1 / 60, { fire: true }); if (h.pbul.length > before) v++; } vol.push(v); }
+  assert(vol[0] < vol[1] && vol[1] < vol[2], "volleys per 2 s: " + vol.join(" < ")); assert(vol[0] <= 10 && vol[2] >= 15, vol.join(","));
+  assert.deepStrictEqual(globalThis.EndlessRules.TIER_INT, [0, 0.22, 0.17, 0.13]);
+});
+t("the hero moves 20% faster (360 px/s)", () => { const h = createGame({ mode: "campaign", level: 1, god: true }); h.state = "waves"; h.waveIdx = 99; const y0 = h.player.y = 300; for (let i = 0; i < 30; i++) updateGame(h, 1 / 60, { up: true }); assert(Math.abs((y0 - h.player.y) - 180) < 8, "moved " + (y0 - h.player.y)); });
 t("defeating a campaign elite drops exactly one weapon upgrade at its position", () => { const h = createGame({ mode: "campaign", level: 5, tier: 1, god: true }); const e = spawnEnemyG(h, true); e.t = 1; damage(h, e); const ups = h.pickups.filter((k) => k.kind === "up"); assert.strictEqual(ups.length, 1); assert(Math.abs(ups[0].x - e.x) < 1 && Math.abs(ups[0].y - e.y) < 1); });
 t("normal enemies never drop weapon upgrades", () => { const h = createGame({ mode: "campaign", level: 5, tier: 1, god: true }); for (let i = 0; i < 300; i++) { const e = spawnEnemyG(h, false); e.t = 1; damage(h, e); } assert(!h.pickups.some((k) => k.kind === "up")); });
 t("upgrade pickups drift left slower than enemy bullets", () => { assert(55 < 85); });
@@ -37,7 +44,7 @@ t("weapon upgrades only on collection; max tier gives +1000 once per pickup", ()
 t("endless: enemies never fire projectiles; danger is contact only", () => { const h = createGame({ mode: "endless", seed: 77, god: true }); for (let i = 0; i < 60 * 240; i++) { updateGame(h, 1 / 60, {}); assert.strictEqual(h.ebul.length, 0); } assert(h.enemies.length + h.kills >= 0); });
 t("endless: spawn gap shrinks every 20 s, cumulatively, to a floor", () => { const R = globalThis.EndlessRules; let prev = Infinity; for (let s = 0; s <= 600; s += 20) { const gp = R.spawnGap(s); assert(gp <= prev); if (s >= 20 && gp > 1.1) assert(gp < R.spawnGap(s - 20)); prev = gp; } assert.strictEqual(R.spawnGap(0), R.spawnGap(19.9)); assert.strictEqual(R.spawnGap(5000), 0.9); });
 t("endless waves: every 20 s, bigger each time, staggered, two lanes left open, darts spaced", () => { const R = globalThis.EndlessRules; let prev = 0;
-  for (let n = 1; n <= 15; n++) { const w = R.waveSpawns(77, n); assert(w.length > prev || w.length === 34, "wave " + n + " grows"); prev = w.length;
+  for (let n = 1; n <= 15; n++) { const w = R.waveSpawns(77, n); assert(w.length > prev || w.length >= 50, "wave " + n + " grows"); prev = w.length; if (n === 1) assert.strictEqual(w.length, 13);
     const ts = w.map((s) => s.t), lanes = new Set(w.map((s) => s.y)); assert(Math.min(...ts) >= n * 20 && Math.max(...ts) - Math.min(...ts) >= 0.5 && Math.max(...ts) < (n + 1) * 20); assert(lanes.size <= 6, "at least two lanes open");
     const darts = w.map((s, i) => (s.type === "dart" ? s.t : null)).filter((x) => x !== null).sort((a, b) => a - b); for (let i = 1; i < darts.length; i++) assert(darts[i] - darts[i - 1] >= 0.5);
     if (n >= 3) assert(w.some((s) => s.type.startsWith("bulwark"))); }
@@ -130,9 +137,10 @@ t("blast charges: start with 1, pickups add 1 up to 3, each blast uses 1, none l
     updateGame(h, 1 / 60, { specialPressed: true }); assert.strictEqual(p.charge, 0, "no charge left: nothing happens"); for (let i = 0; i < 60 * 20; i++) updateGame(h, 1 / 60, {}); assert.strictEqual(p.blasts, 0, "no automatic recharge");
   }
 });
-t("endless five-minute stages stop at 20 min: ×2/×4/×8/×16 enemies, speed +25% per stage, hit caps 5 / 10 / 15, max 50 on screen", () => {
+t("endless stages stop at 20 min: ×2/×4/×8/×16 enemies, speed +3.5% per wave, hit caps 5 / 10 / 15, max 50 on screen", () => {
   const R = globalThis.EndlessRules; assert.deepStrictEqual([0, 299, 300, 600, 900, 1200, 1500, 2400].map(R.countMult), [1, 1, 2, 4, 8, 16, 16, 16]);
-  assert.strictEqual(R.speedAt(300) / R.speedAt(0), 1.25); assert.strictEqual(R.speedAt(600) / R.speedAt(300), 1.25); assert.strictEqual(R.speedAt(1500), R.speedAt(2400), "speed stops growing after 20 min");
+  for (let wv = 0; wv < 60; wv++) assert(Math.abs(R.speedAt((wv + 1) * 20) - R.speedAt(wv * 20) - 0.035) < 1e-9, "speed +3.5% every wave"); assert.strictEqual(R.speedAt(1200), R.speedAt(2400), "speed stops growing after 20 min");
+  assert(Math.abs(R.speedAt(300, true) / R.speedAt(300) - 1.3) < 1e-9, "duels 30% faster");
   for (const t of [0, 90, 310, 610, 1250, 3000]) { assert(R.hitsFor("mite", t) <= 5); assert(R.hitsFor("dart", t) <= 10); for (const b of ["bulwark1", "bulwark2", "bulwark3", "bulwark4"]) assert(R.hitsFor(b, t) <= 15 && R.hitsFor(b, t, true) <= 15); }
   assert.strictEqual(R.hitsFor("bulwark1", 310), 15); assert.strictEqual(R.hitsFor("dart", 310), 10); assert.strictEqual(R.hitsFor("mite", 610), 5); assert.strictEqual(R.hitsFor("bulwark1", 70), 10);
   const s = R.createSchedule(4).take(660), per = (a, b) => s.filter((x) => x.t >= a && x.t < b).length; assert(per(300, 360) > per(240, 300) * 1.6, "count doubles at 5 min");
@@ -149,15 +157,18 @@ t("every hero has a uniquely named ultimate; each ultimate type hits enemies for
     const hit = es.filter((e) => e.hp <= 89).length; assert(hit >= 1, type + " hit " + hit); for (const e of es) assert(e.hp === 99 || e.hp === 89, type + " deals exactly 10"); assert(!h.blast, type + " finishes in time");
   }
 });
-t("Endless bosses: one every 30,000 points, field cleared, spawns paused, six different bosses, bombs telegraphed", () => {
+t("Endless bosses: one every 15 waves, field cleared, spawns paused, six different bosses, bombs telegraphed", () => {
   const g = createGame({ mode: "endless", seed: 12, god: true }); for (let i = 0; i < 60 * 30; i++) updateGame(g, 1 / 60, {});
-  assert(g.enemies.length > 0); g.score = 30000; updateGame(g, 1 / 60, {});
+  assert(g.enemies.length > 0 && !g.boss); g.t = 299.99; updateGame(g, 1 / 60, {});
   assert(g.boss && g.boss.def.kind === "octo_queen" && g.enemies.length === 0 && g.rec.bosses.length === 1, "boss arrives, field cleared");
   for (let i = 0; i < 60 * 12; i++) { updateGame(g, 1 / 60, {}); assert.strictEqual(g.enemies.length, 0, "no regular enemies during the boss"); }
   assert(g.hz.some((h) => h.type === "bomb") || g.ebul.length > 0, "boss attacks"); assert.strictEqual(g.boss.max, globalThis.EndlessRules.bossHp(0, g.rec.bosses[0][0]));
-  g.boss.entering = false; damageBoss(g, null, 1e6, true); assert(g.rec.bosses[0][1] !== null && g.nextBoss === 60000);
+  g.boss.entering = false; damageBoss(g, null, 1e6, true); assert(g.rec.bosses[0][1] !== null && g.bossIdx === 1);
   for (let i = 0; i < 60 * 5; i++) updateGame(g, 1 / 60, {}); assert(!g.boss && g.enemies.length > 0, "regular waves resume after the boss");
   const kinds = new Set(); for (let i = 0; i < 6; i++) kinds.add(makeEndlessBoss(g, i).def.name); assert.strictEqual(kinds.size, 6);
+  const R = globalThis.EndlessRules; assert.deepStrictEqual([0, 1, 2, 3].map((i) => R.bossHp(i, 100)), [500, 600, 700, 800], "each boss tougher than the last");
+  assert(makeEndlessBoss(g, 4).def.rest[0] < makeEndlessBoss(g, 0).def.rest[0], "later bosses rest less");
+  assert.deepStrictEqual([0, 1, 2].map(R.bossClock), [300, 600, 900], "bosses after waves 15, 30, 45");
 });
 t("validator: a boss that appears early, or never appears when due, is rejected", () => {
   const R = globalThis.EndlessRules, ev = { v: R.VERSION, end: 100, kills: [], picks: [], hits: [98, 99, 100], blasts: [], bosses: [[50, null, 0]] };
@@ -171,5 +182,13 @@ t("fast enemies are announced ~1.2 s before they appear (both modes)", () => {
 t("customised weapon changes projectiles and muzzle; hitbox never changes", () => {
   const av = globalThis.effectiveAvatar("lumi", { weapon: "bow", ride: "skate", hat: "crown", back: "wings" }); const g = createGame({ mode: "campaign", level: 1, avatar: "lumi", av, god: true });
   assert.strictEqual(g.av.cat, "bow"); assert.deepStrictEqual(g.muzzle, muzzleFor("lumi", av)); assert.notDeepStrictEqual(g.muzzle, muzzleFor("lumi"));
+});
+t("duels: bigger waves, busier spawns, 30% faster enemies, and a bullet power-up every 10 s for both players", () => {
+  const R = globalThis.EndlessRules; for (const n of [1, 3, 6]) assert(R.waveSpawns(4, n, true).length > R.waveSpawns(4, n).length);
+  const cnt = (o) => R.createSchedule(4, o).take(180).length; assert(cnt({ versus: true }) > cnt({}) * 1.3);
+  const a = createGame({ mode: "endless", seed: 9, versus: true, god: true }), b = createGame({ mode: "endless", seed: 9, versus: true, god: true }), pa = [], pb = [];
+  for (let i = 0; i < 60 * 41; i++) { for (const [g, arr] of [[a, pa], [b, pb]]) { const n = g.pickups.length; updateGame(g, 1 / 60, {}); for (const k of g.pickups.slice(n)) if (["comet", "nova", "prism"].includes(k.kind) && k.x > 960) arr.push(Math.round(g.t) + k.kind); } }
+  assert.deepStrictEqual(pa.slice(0, 4), ["10comet", "20nova", "30prism", "40comet"]); assert.deepStrictEqual(pa, pb, "identical for both players");
+  assert(!a.boss, "no bosses in duels");
 });
 console.log(`\n${pass} weapon/elite/enemy tests passed`);

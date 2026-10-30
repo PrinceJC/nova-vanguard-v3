@@ -296,6 +296,10 @@ body.game { position: fixed; inset: 0; overflow: hidden; }
 .roomcode { font-family: 'Exo 2', monospace; font-size: 46px; font-weight: 800; letter-spacing: 8px; color: #8ff7ef; margin: 6px 0; text-align: center; }
 .countdown { font-family: 'Exo 2', sans-serif; font-size: 120px; font-weight: 800; color: #fff; text-shadow: 0 6px 0 #120c30, 0 0 40px rgba(94,242,242,.6); }
 .coinrow td { color: #ffe08a; font-weight: 800; }
+
+/* fixed joystick: always in the same spot, bottom-left of the left touch zone */
+.joybase.fixed { position: absolute; left: 46px; top: auto; bottom: 34px; width: 140px; height: 140px; margin: 0; opacity: .92; border-radius: 50%; background: radial-gradient(circle, rgba(255,255,255,.10), rgba(255,255,255,.04) 60%, rgba(160,190,255,.14)); border: 3px solid rgba(160,190,255,.45); box-shadow: inset 0 0 18px rgba(0,0,0,.35); transition: none; }
+.joybase.fixed .joyknob { position: absolute; left: 50%; top: 50%; width: 62px; height: 62px; margin: -31px 0 0 -31px; border-radius: 50%; background: radial-gradient(circle at 40% 35%, #ffffff, #b8f4ff 55%, #5ac8e0); border: 3px solid #1a3a5a; box-shadow: 0 4px 10px rgba(0,0,0,.35); transition: transform .05s linear; }
 </style>
 </head>
 <body>
@@ -315,17 +319,19 @@ const SPRITE_SVG = {"player": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox
   if (typeof module === "object" && module.exports) module.exports = m; else root.EndlessRules = m;
 })(typeof self !== "undefined" ? self : this, function () {
   "use strict";
-  const VERSION = 11;
+  const VERSION = 13;
   const PLAYER_HP = 3, INV_MIN = 0.9, BLAST_CD = 14, FIRE_INT = 0.15, BLAST_DMG = 10;
   const PICKUP_LIFE = 30, ENTRY_MIN = 0.15, MAX_LIFE = 45;
-  const TIER_SHOTS = [0, 1, 3, 6], TIER_DPS = TIER_SHOTS.map((n) => n / FIRE_INT), MAX_TIER_BONUS = 1000;
+  // fire rate rises with weapon upgrades: 0.22 s between attacks at 1 shot, 0.17 s at 3, 0.13 s at 6
+  const TIER_SHOTS = [0, 1, 3, 6], TIER_INT = [0, 0.22, 0.17, 0.13], TIER_DPS = TIER_SHOTS.map((n, i) => (i ? n / TIER_INT[i] : 0)), MAX_TIER_BONUS = 1000;
   const POINTS_PER_TIER = 5, SHIELD_EVERY = 60, SHIELD_FIRST = 30, BLAST_EVERY = 30, BLAST_FIRST = 30;
   const BLAST_START = 1, BLAST_MAX = 3, BLAST_GAP = 1.0;   // stored blast charges: start with 1, hold up to 3, pickups add 1
   const MAX_ON_SCREEN = 50, MAX_STAGE = 4, HIT_CAP = { n: 5, f: 10, a: 15 };   // stages stop growing at 20 min
   const POWERUP_TIME = 10, POWERUP_DMG = 2;
   // Endless bosses: one arrives every 30,000 points; regular spawns pause (and the screen is cleared) during the fight
-  const BOSS_EVERY_POINTS = 30000, BOSS_ENTRY = 1.8;
-  function bossHp(idx, t) { return Math.ceil(320 * (1 + 0.6 * idx) * (1 + capStageT(t))); }
+  const BOSS_EVERY_POINTS = 30000, BOSS_EVERY_WAVES = 15, BOSS_ENTRY = 1.8;
+  function bossClock(idx) { return (idx + 1) * BOSS_EVERY_WAVES * 20; }   // schedule-clock time of boss idx
+  function bossHp(idx, t) { return Math.ceil(500 * (1 + 0.2 * idx) * (1 + capStageT(t))); }
   function bossBonus(idx) { return 3000 + 1000 * idx; }
   function capStageT(t) { return Math.min(4, Math.floor(t / 300)); }   // bullet power-ups (Comet / Nova / Prism) last 10 s and double damage
   const UPGRADES = [];   // weapon upgrades come only from defeated elites
@@ -374,7 +380,7 @@ const SPRITE_SVG = {"player": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox
   // Blast pickup interval tightens as the crowds grow: 30 s, then 10 s at 5 min, 8 s at 10, 6 s at 15, 5 s from 20
   const BLAST_INTERVALS = [30, 10, 8, 6, 5];
   function blastInterval(t) { return BLAST_INTERVALS[capStage(t)]; }
-  function speedAt(t) { const s = capStage(t), f = stageOf(t) >= MAX_STAGE ? 1 : (t - s * 300) / 300; return pow125(s) * (1 + 0.2 * f); }
+  function speedAt(t, versus) { const w = Math.min(60, Math.floor(t / 20)); return (1 + 0.035 * w) * (versus ? 1.3 : 1); }
   function hitsFor(type, t, elite) {
     const st = STATS[type], base = st[0] * (elite ? 2 : 1);
     if (st[3] === "n" && !elite) return Math.min(HIT_CAP.n, base * minuteMult(t));
@@ -390,9 +396,9 @@ const SPRITE_SVG = {"player": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox
 
   // Wave n at 20·n s: grows each time; staggered groups of four; two adjacent lanes always open; darts spaced apart.
   // After 5 min every enemy is repeated countMult(t) times, spread further over time in open lanes.
-  function waveSpawns(seed, n) {
+  function waveSpawns(seed, n, versus) {
     const r = rng((seed ^ Math.imul(n + 7, 0x85ebca6b)) >>> 0), t0 = n * WAVE_EVERY, mult = countMult(t0);
-    const count = Math.min(34, 6 + n * 2), armoredShare = n >= 2 ? Math.min(0.3, 0.06 * n) : 0, fastShare = n >= 3 ? Math.min(0.2, 0.04 * n) : 0;
+    const count = versus ? Math.min(60, 13 + n * 5) : Math.min(50, 10 + n * 3), armoredShare = n >= 2 ? Math.min(0.3, 0.06 * n) : 0, fastShare = n >= 3 ? Math.min(0.2, 0.04 * n) : 0;
     const maxTier = t0 >= 270 ? 4 : t0 >= 180 ? 3 : t0 >= 100 ? 2 : 1;
     const std = POOL.filter((p) => STATS[p[0]][3] === "n" && p[1] <= t0).map((p) => p[0]);
     const gapA = Math.floor(r() * (LANES - 1)), open = [];
@@ -417,8 +423,8 @@ const SPRITE_SVG = {"player": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox
     return out;
   }
 
-  function createSchedule(seed) {
-    const r = rng(seed);
+  function createSchedule(seed, opts = {}) {
+    const r = rng(seed), versus = !!opts.versus;
     let packT = 2, id = 0, nextWave = 1;
     const buf = [];
     function pack() {
@@ -448,12 +454,12 @@ const SPRITE_SVG = {"player": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox
         buf.push(finish({ ...m, id: ++id }));
         for (let c = 1; c < mult; c++) buf.push(finish({ id: ++id, t: m.t + c * 0.33, type: m.type, y: (typeof m.y === "number" ? 0.12 + ((m.y - 0.12 + c * 0.29) % 0.76) : m.y) }));
       }
-      packT = t + spawnGap(t) + groups * 0.35;
+      packT = t + spawnGap(t) * (versus ? 0.7 : 1) + groups * 0.35;
     }
     return {
       take(untilT) {
         while (packT <= untilT + 12) pack();
-        while (nextWave * WAVE_EVERY <= untilT + 12) for (const s of waveSpawns(seed, nextWave++)) buf.push(s);
+        while (nextWave * WAVE_EVERY <= untilT + 12) for (const s of waveSpawns(seed, nextWave++, versus)) buf.push(s);
         buf.sort((a, b) => a.t - b.t || a.id - b.id);
         const out = [];
         while (buf.length && buf[0].t <= untilT) out.push(buf.shift());
@@ -561,33 +567,26 @@ const SPRITE_SVG = {"player": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox
         if (!blasts.some((b) => t >= b && t <= b + 1.5)) return fail("An enemy was credited to a special blast that didn’t happen.");
       } else {
         eff = Math.max(0, eff);
-        const mr = maxRate(s.rt, t), need = Math.max(0, eff - mr * FIRE_INT) / mr, have = t - s.rt;
+        const mr = maxRate(s.rt, t), need = Math.max(0, eff - mr * TIER_INT[3]) / mr, have = t - s.rt;
         if (have + 0.06 < need) return fail("An enemy was defeated faster than the cannon can fire.");
         dmgUsed += eff;
         if (dmgUsed > capUntil(t) * 1.05 + 8) return fail("More damage was dealt than the cannon can produce.");
       }
       score += s.score; if (s.elite) elites++;
     }
-    { // rebuild the score timeline to check when each boss was due
-      const evs = [];
-      for (const [t, id] of kills) evs.push([t, byId.get(id).score]);
-      for (let m = 1; m * 60 <= end; m++) evs.push([m * 60, 250 * m]);
-      let ups = 0; for (const [t, pid] of picks) { const mm = /^d(\d+)$/.exec(pid); if (mm && drops.get(+mm[1]) === "up") { if (ups >= 2) evs.push([t, MAX_TIER_BONUS]); ups++; } }
-      bosses.forEach((b, i) => { if (b[1] !== null) evs.push([b[1], bossBonus(i)]); });
-      evs.sort((a, b) => a[0] - b[0]);
-      let cum = 0, k = 0; const crossing = [];
-      for (const [t, pts] of evs) { cum += pts; while (cum >= (crossing.length + 1) * BOSS_EVERY_POINTS) crossing.push(t); }
+    { // each boss arrives when the schedule clock reaches 15, 30, 45 … waves; kills must be possible; bonuses counted
       for (let i = 0; i < bosses.length; i++) {
-        const due = Math.max(crossing[i] ?? Infinity, i ? bosses[i - 1][1] : 0);
-        if (!(bosses[i][0] >= due - 0.02 && bosses[i][0] <= due + 0.15)) return fail("A boss appeared at the wrong time.");
+        const c = bosses[i][0] - pausedBefore(bosses[i][0]);
+        if (!(c >= bossClock(i) - 0.02 && c <= bossClock(i) + 0.12)) return fail("A boss appeared at the wrong time.");
         if (bosses[i][1] !== null) {
-          const s0 = bosses[i][0], e0 = bosses[i][1], hpB = bossHp(i, s0), bl = blasts.filter((b) => b >= s0 && b <= e0).length;
+          const s0 = bosses[i][0], e0 = bosses[i][1], hpB = bossHp(i, s0), bl = blasts.filter((x) => x >= s0 && x <= e0).length;
           const need = Math.max(0, hpB - bl * 14) / maxRate(s0, e0);
           if (e0 - s0 - BOSS_ENTRY + 0.15 < need) return fail("A boss was defeated faster than the cannon can fire.");
           score += bossBonus(i);
         }
       }
-      if (crossing.length > bosses.length && crossing[bosses.length] < end - 0.2 && (bosses.length === 0 || bosses[bosses.length - 1][1] !== null)) return fail("A boss that was due never appeared.");
+      const lastDone = bosses.length === 0 || bosses[bosses.length - 1][1] !== null;
+      if (lastDone && clockEnd > bossClock(bosses.length) + 0.2) return fail("A boss that was due never appeared.");
     }
     let hp = PLAYER_HP, lastHit = -10, dead = false;
     for (const t of hits) {   // no healing exists: exactly three hits end the run
@@ -601,7 +600,7 @@ const SPRITE_SVG = {"player": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox
     return { ok: true, score: Math.round(score), kills: kills.length, elites, survival: end };
   }
 
-  return { VERSION, BOSS_EVERY_POINTS, BOSS_ENTRY, bossHp, bossBonus, BLAST_START, BLAST_MAX, BLAST_FIRST, MAX_ON_SCREEN, HIT_CAP, MAX_STAGE, STATS, POOL, POWERUPS, UPGRADES, TIER_SHOTS, FIRE_INT, MAX_TIER_BONUS, PLAYER_HP, BLAST_CD, BLAST_DMG, PICKUP_LIFE, PICK_POINTS,
+  return { VERSION, TIER_INT, BOSS_EVERY_WAVES, bossClock, BOSS_EVERY_POINTS, BOSS_ENTRY, bossHp, bossBonus, BLAST_START, BLAST_MAX, BLAST_FIRST, MAX_ON_SCREEN, HIT_CAP, MAX_STAGE, STATS, POOL, POWERUPS, UPGRADES, TIER_SHOTS, FIRE_INT, MAX_TIER_BONUS, PLAYER_HP, BLAST_CD, BLAST_DMG, PICKUP_LIFE, PICK_POINTS,
     WAVE_EVERY, STEP_SECONDS, SHIELD_EVERY, BLAST_EVERY, rng, hash01, createSchedule, waveSpawns, timedPickupsUntil, newDropState, dropFor, milestonePoints, validate,
     spawnGap, speedAt, threatLevel, minuteMult, stageOf, capStage, countMult, damageMult, powerupMult, blastInterval, BLAST_INTERVALS, POWERUP_TIME, POWERUP_DMG, hitsFor, pointsFor, pow15, pow125 };
 });
@@ -1152,7 +1151,7 @@ if (typeof module === "object" && module.exports) module.exports = { WORLDS, get
 // ============================================================ constants & helpers
 const W = 960, H = 540, TAU = Math.PI * 2;
 const MAX_EBUL = 420, MAX_PBUL = 160;
-const SPECIAL_CD = 14, PLAYER_HP = 3, INV_TIME = 1.0, PLAYER_SPEED = 300, BLAST_CHARGE = 0.45, BLAST_SPEED = 1700, BLAST_MAX = 1150;
+const SPECIAL_CD = 14, PLAYER_HP = 3, INV_TIME = 1.0, PLAYER_SPEED = 360, BLAST_CHARGE = 0.45, BLAST_SPEED = 1700, BLAST_MAX = 1150;
 const CAMPAIGN_HP_CAP = 2, ENEMY_SCALE = 2.1, ELITE_SCALE = 1.5, FIRE_INT = EndlessRules.FIRE_INT, MAX_TIER_BONUS = EndlessRules.MAX_TIER_BONUS;
 // player art: 140 x 92 px (≈15% of playfield width incl. weapon, ≈17% of height); hitbox stays a 6 px core
 const PLAYER_ART_W = 150, PLAYER_ART_K = 150 / 104, PLAYER_HITBOX = 6;
@@ -1223,7 +1222,7 @@ function createGame(opts) {
   };
   g.muzzle = muzzleFor(g.avatar, g.av);
   if (endless) {
-    g.seed = opts.seed >>> 0; g.pending = []; g.nextBoss = EndlessRules.BOSS_EVERY_POINTS; g.bossIdx = 0; g.sched = EndlessRules.createSchedule(g.seed); g.dropState = EndlessRules.newDropState();
+    g.seed = opts.seed >>> 0; g.pending = []; g.nextBoss = EndlessRules.BOSS_EVERY_POINTS; g.bossIdx = 0; g.sched = EndlessRules.createSchedule(g.seed, { versus: g.versus }); g.dropState = EndlessRules.newDropState();
     g.rec = { v: EndlessRules.VERSION, kills: [], picks: [], hits: [], blasts: [], bosses: [], end: 0 };
     g.spawnMap = new Map(); g.upDone = {}; g.milestone = 0; g.elites = 0; g.theme = 0;
   }
@@ -1264,7 +1263,7 @@ function spawnEnemy(g, type, y, x, o = {}) {
   const base = Math.min(def.size * ENEMY_SCALE, def.armored ? 92 + def.armored * 8 : 105), k = base / def.size, size = base * (elite ? ELITE_SCALE : 1), er = def.r * k * (elite ? ELITE_SCALE : 1);
   const e = { type, def, size, r: er, x: x ?? W + size / 2 + 10, y: 0, y0: 0, hp: o.hp ?? campHp ?? def.hp, shield: o.shield ?? (def.shield || 0) * (g.mode === "campaign" ? 1 + Math.min(0.6, g.level * 0.006) : 1) * (elite ? 1.5 : 1),
     t: 0, st: "in", stT: 0, fireT: def.fire && def.fire.every ? rand(0.6, 1.4) : 0, flash: 0, flip: false, entered: false, burst: 0, burstT: 0, rot: 0, jumps: 0, kb: 0, sid: o.sid || 0, elite, score: o.score ?? 5 * (enemyTier(def) + (elite ? 2 : 0)) };
-  e.maxShield = e.shield; e.maxHp = e.hp; e.spd = g.mode === "endless" ? EndlessRules.speedAt(g.t) : 1;
+  e.maxShield = e.shield; e.maxHp = e.hp; e.spd = g.mode === "endless" ? EndlessRules.speedAt(g.t, g.versus) : 1;
   if (y === "top" || y === "bottom") { e.flip = y === "top"; e.y = y === "top" ? size / 2 + 2 : H - size / 2 - 2; }
   else { const amp = def.amp || 12; e.y = clamp(y, amp + size * 0.5 + 8, H - amp - size * 0.5 - 8); }
   e.y0 = e.y; e.stopX = rand(600, 840);
@@ -1601,7 +1600,7 @@ function updateGame(g, dt, input) {
     if (p.charge > 0) { p.charge -= dt; if (p.charge <= 0) { p.charge = 0; releaseBlast(g); } }
     p.fireCd -= dt;
     p.firing = (input.fire || input.autofire) && g.state !== "complete" && p.charge <= 0;
-    if (p.firing && p.fireCd <= 0) { p.fireCd = FIRE_INT; playerFire(g); }
+    if (p.firing && p.fireCd <= 0) { p.fireCd = EndlessRules.TIER_INT[p.tier]; playerFire(g); }   // faster with each weapon upgrade
     if (input.specialPressed) special(g);
   }
   input.specialPressed = false;
@@ -1648,6 +1647,7 @@ function updateTimedPickups(g) {
   g.tp = g.tp || { sh: 0, bl: 0 };
   const S = EndlessRules, T = g.tp;
   while (30 + T.sh * S.SHIELD_EVERY <= g.t) { const k = T.sh++; g.pickups.push({ x: W + 20, y: 40 + (0.25 + (k % 3) * 0.25) * (H - 80), kind: "shield", t: 0, vy: 0, pid: g.mode === "endless" ? "sh" + k : undefined }); }
+  if (g.versus) { T.pu = T.pu || 0; while (10 + T.pu * 10 <= g.t) { const k = T.pu++; g.pickups.push({ x: W + 20, y: 40 + (0.2 + (k % 5) * 0.15) * (H - 80), kind: S.POWERUPS[k % 3], t: 0, vy: 0 }); } }
   if (T.nextBl === undefined) T.nextBl = S.BLAST_FIRST;
   while (T.nextBl <= g.t) { const k = T.bl++; T.nextBl += S.blastInterval(T.nextBl); g.pickups.push({ x: W + 20, y: 40 + (0.3 + (k % 4) * 0.13) * (H - 80), kind: "blast", t: 0, vy: 0, pid: g.mode === "endless" ? "bl" + k : undefined }); }
 }
@@ -1678,7 +1678,7 @@ function updateCampaignFlow(g, dt) {
 function endlessClock(g) { let p = 0; for (const b of g.rec.bosses) p += (b[1] === null ? g.t : b[1]) - b[0]; return g.t - p; }
 function startEndlessBoss(g) {
   const idx = g.bossIdx++;
-  g.nextBoss += EndlessRules.BOSS_EVERY_POINTS;
+  g.diff = 1 + 0.08 * idx;   // later bosses attack faster
   for (const e of g.enemies) particle(g, e.x, e.y, "#c9bde8", 4, 90, 0.35);   // clear the field (no points) — boss fights are one-on-one
   g.enemies = []; g.ebul = []; g.hz = [];
   g.boss = makeEndlessBoss(g, idx);
@@ -1691,7 +1691,7 @@ function updateEndlessFlow(g, dt) {
   updateTimedPickups(g);
   const cap = ENEMY_CAP[g.quality ?? 2];
   if (g.boss && g.boss.dying && g.boss.dieT > 2.6) { g.boss = null; ev(g, "bossEnd", {}); }
-  if (!g.versus && (!g.boss || g.boss.dying) && g.score >= g.nextBoss) startEndlessBoss(g);
+  if (!g.versus && (!g.boss || g.boss.dying) && endlessClock(g) >= EndlessRules.bossClock(g.bossIdx)) startEndlessBoss(g);
   const bossAlive = g.boss && !g.boss.dying;
   const clock = endlessClock(g);
   if (!bossAlive) for (const s of g.sched.take(clock + 1.2)) g.pending.push(s);   // look ahead so fast enemies can be announced
@@ -1703,13 +1703,13 @@ function updateEndlessFlow(g, dt) {
     spawnEnemy(g, s.type, y, undefined, { hp: s.hp, shield: s.shield, sid: s.id, elite: s.elite, score: s.score });
   }
   for (const u of EndlessRules.UPGRADES) if (!g.upDone[u.id] && g.t >= u.t) { g.upDone[u.id] = true; g.pickups.push({ x: W + 20, y: 40 + u.y * (H - 80), kind: "up", t: 0, vy: 0, pid: u.id }); }
-  const nextWave = Math.floor(g.t / EndlessRules.WAVE_EVERY) + 1;
-  if (nextWave * EndlessRules.WAVE_EVERY - g.t <= 2 && g.warned !== nextWave) { g.warned = nextWave; ev(g, "sfx", { name: "warning" }); }
+  const clk = endlessClock(g), nextWave = Math.floor(clk / EndlessRules.WAVE_EVERY) + 1;
+  if (!(g.boss && !g.boss.dying) && nextWave * EndlessRules.WAVE_EVERY - clk <= 2 && g.warned !== nextWave) { g.warned = nextWave; ev(g, "sfx", { name: "warning" }); }
   const m = Math.floor(g.t / 60);
   if (m > g.milestone) { g.milestone = m; const pts = 250 * m; g.score += pts; floatText(g, W / 2, 110, `${m} min survived  +${pts}`, "#ffe08a"); ev(g, "sfx", { name: "clear" }); }
   const th = Math.floor(g.t / 120) % WORLDS.length;
   if (th !== g.theme) { g.theme = th; g.lv = { ...g.lv, pal: WORLDS[th].pal, bg: WORLDS[th].bg, world: WORLDS[th] }; }
-  g.diff = 1 + Math.min(g.t / 600, 1) * 0.25; g.fireDiff = 1 + Math.min(g.t / 600, 1) * 0.3;
+  if (!(g.boss && !g.boss.dying)) g.diff = 1 + Math.min(g.t / 600, 1) * 0.25; g.fireDiff = 1 + Math.min(g.t / 600, 1) * 0.3;
 }
 
 function collect(g, k) {
@@ -2233,6 +2233,8 @@ function endlessBossDef(kind) {
 }
 function makeEndlessBoss(g, idx) {
   const kind = ENDLESS_BOSS_KINDS[idx % ENDLESS_BOSS_KINDS.length], def = endlessBossDef(kind), hp = EndlessRules.bossHp(idx, g.t);
+  def.rest = def.rest.map((r) => Math.max(0.35, r * (1 - 0.06 * idx)));   // each later boss rests less between attacks
+  if (idx >= ENDLESS_BOSS_KINDS.length) def.name = def.name + " " + ["II", "III", "IV", "V"][Math.min(3, Math.floor(idx / ENDLESS_BOSS_KINDS.length) - 1)];
   const b = { def, x: W + def.size / 2 + 60, y: H / 2, hx: W - 200, hp, max: hp, phase: 1, t: 0, atk: null, atkT: 0, rest: 1.0, idx: 0, endlessIdx: idx,
     tm: {}, trans: 0, flash: 0, clink: 0, entering: true, parts: [], hits: [], body: [], open: false, dying: false, dieT: 0, alpha: 1, lock: false, tele: null, baseY: H / 2 };
   def.layout(b, g); return b;
@@ -3018,9 +3020,10 @@ function drawHUD(ctx, g, set, now) {
   if (p.bullet) { const pu = BULLET_POWERUPS[p.bullet.kind]; chip(pu.name.split(" ")[0] + " ×" + powerupMultFor(g) + " " + p.bullet.t.toFixed(1) + "s", pu.color, p.bullet.t / POWERUP_TIME); }
   txt(ctx, g.score.toLocaleString(), W - 86, 36, 26, "#ffe08a", "right", 800);
   if (g.mode === "endless") {
-    const wave = Math.floor(g.t / EndlessRules.WAVE_EVERY), nx = EndlessRules.WAVE_EVERY - (g.t % EndlessRules.WAVE_EVERY);
+    const clk = g.rec ? endlessClock(g) : g.t, wave = Math.floor(clk / EndlessRules.WAVE_EVERY), nx = EndlessRules.WAVE_EVERY - (clk % EndlessRules.WAVE_EVERY), bossFight = g.boss && !g.boss.dying;
+    const bossIn = g.versus ? null : EndlessRules.BOSS_EVERY_WAVES * (g.bossIdx + 1) - wave;
     txt(ctx, `Wave ${wave} · ${g.kills} defeated`, W - 86, 58, 14, "#c9bde8", "right");
-    txt(ctx, `Next wave in ${Math.ceil(nx)}s`, W - 86, 77, 13, "#ff9ad5", "right");
+    txt(ctx, bossFight ? "Boss fight!" : `Next wave in ${Math.ceil(nx)}s` + (bossIn ? ` · boss in ${bossIn} wave${bossIn === 1 ? "" : "s"}` : ""), W - 86, 77, 13, "#ff9ad5", "right");
     // personal records: best score and longest survival, turning gold when beaten during this run
     const best = g.best, bs = best ? best.score : 0, bt = best ? best.ms / 1000 : 0;
     const newScore = best ? g.score > bs : g.score > 0, newTime = best ? g.t > bt : g.t > 0;
@@ -3029,8 +3032,8 @@ function drawHUD(ctx, g, set, now) {
     txt(ctx, "Best score", W - 276, 103, 12, "#a8b4e8"); txt(ctx, best ? (newScore ? g.score : bs).toLocaleString() : "—", W - 96, 103, 14, newScore ? "#ffd34f" : "#ffe08a", "right", 800);
     txt(ctx, "Longest run", W - 276, 121, 12, "#a8b4e8"); txt(ctx, best ? fmtTime(newTime ? g.t : bt) : "—", W - 96, 121, 14, newTime ? "#ffd34f" : "#c8f0ff", "right", 800);
     if (best && (newScore || newTime) && g.state === "endless") txt(ctx, "New best!", W - 186, 142, 13, "#ffd34f", "center", 900);
-    if (nx <= 2.2 && g.t > 1) { const k = set.reduced ? 1 : 0.6 + 0.4 * Math.sin(now / 90); ctx.globalAlpha = k; ctx.fillStyle = "rgba(255,63,122,0.16)"; ctx.fillRect(0, H / 2 - 44, W, 88);
-      txt(ctx, `Wave ${wave + 1} incoming!`, W / 2, H / 2 + 12, 40, "#ffd1e6", "center", 900); ctx.globalAlpha = 1; }
+    if (!bossFight && nx <= 2.2 && g.t > 1) { const k = set.reduced ? 1 : 0.6 + 0.4 * Math.sin(now / 90); ctx.globalAlpha = k; ctx.fillStyle = "rgba(255,63,122,0.16)"; ctx.fillRect(0, H / 2 - 44, W, 88);
+      txt(ctx, bossIn === 1 ? "Boss incoming!" : `Wave ${wave + 1} incoming!`, W / 2, H / 2 + 12, 40, "#ffd1e6", "center", 900); ctx.globalAlpha = 1; }
   }
 
   if (g.boss && !g.boss.dying) {
@@ -3520,34 +3523,25 @@ function AvatarPreview({ id, av, w = 298, h: hh = 150 }) {
 }
 
 // ============================================================ touch controls
+// Fixed joystick: the base never moves. Direction = thumb position relative to the stick's centre (clamped),
+// so swiping can't drag the joystick around. Touch anywhere in the left zone; the knob shows the input.
 function TouchControls({ input, game, sens = 1 }) {
-  const base = useRef(null), knob = useRef(null), id = useRef(null), origin = useRef({ x: 0, y: 0 });
+  const base = useRef(null), knob = useRef(null), id = useRef(null);
   const [cd, setCd] = useState(0);
   useEffect(() => { const t = setInterval(() => { const g = game.current; setCd(g ? g.player.blasts : 0); }, 150); return () => clearInterval(t); }, []);
-  const start = (e) => {
-    const t = e.changedTouches[0]; id.current = t.identifier;
-    const r = e.currentTarget.getBoundingClientRect(), sc = r.width / 470;
-    origin.current = { x: t.clientX, y: t.clientY, sc };
-    if (base.current) { base.current.style.left = (t.clientX - r.left) / sc - 60 + "px"; base.current.style.top = (t.clientY - r.top) / sc - 60 + "px"; base.current.style.opacity = 1; }
-    e.preventDefault();
+  const apply = (t) => {
+    const r = base.current.getBoundingClientRect(), sc = r.width / 140, cx = r.left + r.width / 2, cy = r.top + r.height / 2, max = 52 / sens;
+    let dx = (t.clientX - cx) / sc, dy = (t.clientY - cy) / sc; const m = Math.hypot(dx, dy);
+    if (m > max) { dx = (dx / m) * max; dy = (dy / m) * max; }
+    const mag = Math.hypot(dx, dy), dead = 6;
+    input.current.joyX = mag < dead ? 0 : dx / max; input.current.joyY = mag < dead ? 0 : dy / max;
+    if (knob.current) knob.current.style.transform = `translate(${dx * (52 / max)}px, ${dy * (52 / max)}px)`;
   };
-  const move = (e) => {
-    for (const t of e.changedTouches) if (t.identifier === id.current) {
-      const o = origin.current, max = 50 / sens; let dx = (t.clientX - o.x) / o.sc, dy = (t.clientY - o.y) / o.sc; const l = Math.hypot(dx, dy);
-      if (l > max * 1.35) { // floating stick: the base follows a thumb that slides far, so direction changes stay instant
-        const k = (l - max) / l; o.x += (t.clientX - o.x) * k; o.y += (t.clientY - o.y) * k;
-        if (base.current) { base.current.style.left = parseFloat(base.current.style.left) + dx * k + "px"; base.current.style.top = parseFloat(base.current.style.top) + dy * k + "px"; }
-        dx *= 1 - k; dy *= 1 - k;
-      }
-      if (Math.hypot(dx, dy) > max) { const m = Math.hypot(dx, dy); dx = (dx / m) * max; dy = (dy / m) * max; }
-      const mag = Math.hypot(dx, dy); input.current.joyX = mag < 5 ? 0 : dx / max; input.current.joyY = mag < 5 ? 0 : dy / max;
-      if (knob.current) knob.current.style.transform = `translate(${dx}px, ${dy}px)`;
-    }
-    e.preventDefault();
-  };
-  const end = (e) => { for (const t of e.changedTouches) if (t.identifier === id.current) { id.current = null; input.current.joyX = 0; input.current.joyY = 0; if (knob.current) knob.current.style.transform = "translate(0,0)"; if (base.current) base.current.style.opacity = 0.45; } };
+  const start = (e) => { const t = e.changedTouches[0]; id.current = t.identifier; apply(t); e.preventDefault(); };
+  const move = (e) => { for (const t of e.changedTouches) if (t.identifier === id.current) apply(t); e.preventDefault(); };
+  const end = (e) => { for (const t of e.changedTouches) if (t.identifier === id.current) { id.current = null; input.current.joyX = 0; input.current.joyY = 0; if (knob.current) knob.current.style.transform = "translate(0px, 0px)"; } e.preventDefault(); };
   return h(React.Fragment, null,
-    h("div", { className: "joyzone", onTouchStart: start, onTouchMove: move, onTouchEnd: end, onTouchCancel: end }, h("div", { className: "joybase", ref: base }, h("div", { className: "joyknob", ref: knob }))),
+    h("div", { className: "joyzone", onTouchStart: start, onTouchMove: move, onTouchEnd: end, onTouchCancel: end }, h("div", { className: "joybase fixed", ref: base }, h("div", { className: "joyknob", ref: knob }))),
     h("button", { className: "specialbtn" + (cd > 0 ? " ready" : ""), "aria-label": `Special blast, ${cd} of 3 stored`, onTouchStart: (e) => { e.preventDefault(); input.current.specialPressed = true; } },
       h("span", { className: "bl" }, "Blast"), h("span", { className: "pips" }, [0, 1, 2].map((i) => h("i", { key: i, className: i < cd ? "on" : "" })))));
 }
