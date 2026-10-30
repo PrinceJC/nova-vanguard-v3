@@ -57,6 +57,67 @@ const AVATARS = [
     out: ["#4a4e5a", "#d8dce4", "#ff8a5c", "#2a2e38"], wc: ["#5a606e", "#2a2e38", "#ff8a5c"], acc: "scope", shot: ["#ffd8c0", "#ffffff"], weaponName: "Ironsight railgun" },
 ];
 const AVATAR_BY_ID = Object.fromEntries(AVATARS.map((a) => [a.id, a]));
+// ---------------- unique ultimates (all deal the original blast's damage; type sets the shape, colour/name make it theirs)
+const ULTS = {
+  lumi: ["nova", "Aegis Nova", "#8fd8ff"], astra: ["cannonball", "Dawnfire Cannonball", "#ffb86b"], nova: ["laser", "Prism Laser", "#c8b8ff"], riko: ["lightning", "Spark Chain", "#a8ffc8"],
+  pip: ["meteor", "Gadget Meteor Shower", "#8fe8ff"], aria: ["crystal", "Crystal Storm", "#c8fff6"], kestrel: ["lances", "Gale Lances", "#e2ffd0"], mochi: ["tsunami", "Moon Tide", "#d8f4ff"],
+  sable: ["blackhole", "Night Singularity", "#9fffe0"], juno: ["tsunami", "Riptide Wave", "#7ff5e8"], vega: ["solar", "Zenith Flare", "#fff4c4"], haru: ["lances", "Thornbloom Spears", "#e0ffc8"],
+  ines: ["crystal", "Frostglass Storm", "#e0f8ff"], dax: ["meteor", "Forge Meteors", "#ffd08a"], orla: ["blackhole", "Abyssal Vortex", "#7ff0d8"], zephyr: ["lightning", "Thunder Chain", "#d8f0ff"],
+  tamsin: ["laser", "Glyph Beam", "#d0fff0"], wren: ["lances", "Feather Volley", "#e8ffd0"], cass: ["lightning", "Glitch Arc", "#a8ffff"], elio: ["solar", "Sun Flare", "#fff6c8"],
+  luma: ["blackhole", "Eclipse Hole", "#e4ccff"], seraphine: ["nova", "Heaven's Halo", "#ffe9b0"], elara: ["crystal", "Starfall Storm", "#b8fff0"], kai: ["cannonball", "Kickflip Cannonball", "#ffe27a"],
+  lyra: ["tsunami", "Moonleaf Tide", "#d8ffe0"], rook: ["laser", "Railgun Lance", "#ffd8c0"],
+};
+for (const a of AVATARS) { const u = ULTS[a.id] || ["nova", "Blast", a.shot[0]]; a.ult = { type: u[0], name: u[1], color: u[2] }; }
+const ULT_LABEL = { nova: "Nova ring", cannonball: "Cannonball", laser: "Sweeping laser", tsunami: "Tsunami wave", blackhole: "Black hole", lightning: "Chain lightning", lances: "Piercing lances", meteor: "Meteor shower", crystal: "Homing crystal storm", solar: "Solar flare sweep" };
+
+// ---------------- customisation + skins (bought with coins)
+const SWATCH = { crimson: "#d83a5a", azure: "#2f7ad8", emerald: "#2fa86a", violet: "#7a4ae0", gold: "#e0b84a", onyx: "#24222e", pearl: "#eef0f8", coral: "#ff7a5c" };
+const BOOT = { onyx: "#24222e", snow: "#eef0f8", ember: "#d8582a", mint: "#3ad0a8", rose: "#e86bb5" };
+const PARTS = {
+  hat: { default: 0, capHat: 0, headband: 120, catears: 200, bunny: 250, halo: 300, witchhat: 300, crown: 350 },
+  back: { none: 0, wings: 500 },
+  ride: { default: 0, glider: 0, hover: 200, skate: 250, none: 150 },
+  weapon: { default: 0, cannon: 300, bow: 300, sniper: 300, gun: 300, wand: 350, shield: 400 },
+  color: { default: 0, ...Object.fromEntries(Object.keys(SWATCH).map((k) => [k, 80])) },
+  boots: { default: 0, ...Object.fromEntries(Object.keys(BOOT).map((k) => [k, 60])) },
+};
+const PART_LABEL = { capHat: "Cap", headband: "Headband", catears: "Cat ears", bunny: "Bunny ears", halo: "Halo", witchhat: "Witch hat", crown: "Crown", wings: "Wings", glider: "Glider", hover: "Hoverboard", skate: "Skateboard", none: "None", default: "Default",
+  cannon: "Cannon", bow: "Bow", sniper: "Sniper", gun: "Gun", wand: "Wand", shield: "Shield cannon" };
+const SKINS = [
+  { id: "lumi_gold", avatar: "lumi", name: "Gilded Vanguard", price: 600, hc: ["#fff2c8", "#ffffff", "#c8a85a"], out: ["#c8962a", "#fff8e8", "#ffe27a", "#f0d27a"], wc: ["#fff2c8", "#8a5a1a", "#ffe27a"], shot: ["#ffe9a8", "#ffffff"] },
+  { id: "lumi_shadow", avatar: "lumi", name: "Midnight Aegis", price: 450, hc: ["#3a3a58", "#7a7aa8", "#1a1a2e"], out: ["#14142a", "#c8c8e8", "#9f8cff", "#2a2a44"], wc: ["#2a2a44", "#9f8cff", "#c8c8e8"], shot: ["#c8b8ff", "#ffffff"] },
+  { id: "astra_sakura", avatar: "astra", name: "Sakura Dawn", price: 400, hc: ["#ffb8d8", "#fff0f6", "#d86a9a"], out: ["#fff4f8", "#e86bb5", "#ffd1e6", "#d86a9a"], wc: ["#fff4f8", "#c4487a", "#ffd1e6"] },
+  { id: "nova_neon", avatar: "nova", name: "Neon Pulse", price: 400, hc: ["#5ef2f2", "#d8ffff", "#1a8a8a"], out: ["#1a1a2a", "#5ef2f2", "#ff5fa8", "#0e0e18"], wc: ["#1a1a2a", "#ff5fa8", "#5ef2f2"], shot: ["#ff9ad5", "#ffffff"] },
+  { id: "riko_ice", avatar: "riko", name: "Glacier Brawler", price: 350, hc: ["#bfe9ff", "#ffffff", "#5a8ad8"], out: ["#2a3a5a", "#e8f4ff", "#7fd0ff", "#1a2440"] },
+  { id: "pip_retro", avatar: "pip", name: "Retro Arcade", price: 300, hc: ["#ff5f7a", "#ffc8d0", "#a8283e"], out: ["#2a2a54", "#ffd34f", "#ff5f7a", "#14142a"] },
+  { id: "aria_dusk", avatar: "aria", name: "Duskbloom", price: 400, hc: ["#ff9a7a", "#ffe0d0", "#c4502e"], out: ["#3a1a4a", "#ffe8f0", "#ff9a7a", "#22102e"] },
+  { id: "mochi_carrot", avatar: "mochi", name: "Carrot Patch", price: 300, hc: ["#ffd8a8", "#fff4e8", "#d8984a"], out: ["#ff8a3a", "#fff4e8", "#5aa83c", "#c4602a"] },
+  { id: "sable_crimson", avatar: "sable", name: "Crimson Night", price: 450, hc: ["#3a1018", "#7a2a3a", "#1a060c"], out: ["#2a0a14", "#f0c8d0", "#ff3f6a", "#14060a"], shot: ["#ff9ab0", "#ffffff"] },
+  { id: "vega_aurora", avatar: "vega", name: "Aurora Deadeye", price: 500, hc: ["#9ff7c4", "#e8fff4", "#3a9a6a"], out: ["#14304a", "#e8fff4", "#9ff7c4", "#0a1c2e"] },
+  { id: "kai_sunset", avatar: "kai", name: "Sunset Ollie", price: 350, hc: ["#ff8a5c", "#ffd0a8", "#c4452e"], out: ["#3a1a3a", "#ffcf5c", "#ff5f7a", "#22102e"] },
+  { id: "seraphine_dark", avatar: "seraphine", name: "Fallen Seraph", price: 600, hc: ["#2a2440", "#5a5488", "#141024"], out: ["#1a1830", "#c8c4e0", "#ff5fa8", "#0e0c1c"], wc: ["#2a2840", "#ff5fa8", "#c8c4e0"], shot: ["#ffb8e0", "#ffffff"] },
+  { id: "elara_sun", avatar: "elara", name: "Sunlit Mage", price: 450, hc: ["#ffe27a", "#fff8d8", "#c8962a"], out: ["#fff4d8", "#e0b84a", "#ff9a5c", "#c8962a"] },
+  { id: "rook_desert", avatar: "rook", name: "Desert Ops", price: 400, hc: ["#8a6a4a", "#b8946a", "#5a4028"], out: ["#c8a46a", "#f0e4c8", "#ff8a3a", "#8a6a3a"], wc: ["#a8885a", "#5a4028", "#ff8a3a"] },
+];
+const SKIN_BY_ID = Object.fromEntries(SKINS.map((k) => [k.id, k]));
+function avatarPrice(a) { return a.unlock ? 200 + a.unlock * 15 : 0; }
+// Build the hero actually used in play (skin + parts). Hitbox and stats never change; weapon only changes looks + projectiles.
+function effectiveAvatar(id, custom) {
+  const base = AVATAR_BY_ID[id] || AVATARS[0];
+  if (!custom || !Object.keys(custom).some((k) => custom[k] && custom[k] !== "default")) return base;
+  const a = { ...base, hc: [...base.hc], out: [...base.out], wc: [...base.wc], shot: [...base.shot] };
+  const sk = custom.skin && SKIN_BY_ID[custom.skin] && SKIN_BY_ID[custom.skin].avatar === id ? SKIN_BY_ID[custom.skin] : null;
+  if (sk) { for (const k of ["hc", "out", "wc", "shot"]) if (sk[k]) a[k] = [...sk[k]]; }
+  if (custom.color && SWATCH[custom.color]) a.out[0] = SWATCH[custom.color];
+  if (custom.boots && BOOT[custom.boots]) a.boots = BOOT[custom.boots];
+  if (custom.hat && custom.hat !== "default") { a.acc = custom.hat; if (a.hair === "cap") a.hair = "bob"; }
+  if (custom.weapon && custom.weapon !== "default") a.cat = custom.weapon;
+  if (custom.ride && custom.ride !== "default") a.board = custom.ride === "glider" ? undefined : custom.ride;
+  if (custom.back === "wings") a.wings = true; else if (custom.back === "none" && a.board !== "wings") a.wings = false;
+  a.ult = { ...base.ult, color: sk && sk.shot ? sk.shot[0] : base.ult.color };
+  a.key = id + "~" + [custom.skin, custom.hat, custom.back, custom.ride, custom.weapon, custom.color, custom.boots].map((x) => x || "-").join(".");
+  return a;
+}
 const WEAPON_CATS = { cannon: "Cannon", bow: "Bow", sniper: "Sniper rifle", gun: "Rifle / gun", shield: "Shield cannon", wand: "Magic wand" };
 function avatarUnlocked(av, completedCount) { return av.unlock === 0 || completedCount >= av.unlock; }
 const MUZZLES = { cannon: [95, 41], sniper: [99, 40], gun: [88, 41], bow: [72, 41], shield: [70, 43], wand: [66, 33] };   // projectile origin, sprite units
@@ -122,6 +183,9 @@ function accessory(a, p) {
     case "glasses": return `<circle cx="34" cy="25" r="4" fill="none" stroke="${OL}" stroke-width="1.3"/><circle cx="41.5" cy="25" r="3.6" fill="none" stroke="${OL}" stroke-width="1.3"/>`;
     case "feather": return `<path d="M20 12 Q12 4 10 -2 Q18 2 22 10 Z" fill="${acc}" ${st(1)}/>`;
     case "catears": return `<path d="M22 9 L21 -1 L29 5 Z M37 5 L44 -1 L43 9 Z" fill="${a.hc[0]}" ${st(1.2)}/><path d="M23 6 L22.5 2 L26 4.5 Z M40 4.5 L42.5 2 L42 6 Z" fill="#ff9ad5"/>`;
+    case "capHat": return `<path d="M17 16 Q17 4 31 3 Q44 4 45 14 Z" fill="${a.out[2]}" ${st(1.3)}/><path d="M38 13 Q50 12 56 16 Q47 18.5 38 17.5 Z" fill="${a.out[0]}" ${st(1.2)}/><circle cx="30" cy="8.5" r="2.2" fill="${a.out[1]}" ${st(0.7)}/>`;
+    case "headband": return `<path d="M18.5 15 Q31 9 45 13.5 L45 17 Q31 12.6 18.5 18.6 Z" fill="${a.out[2]}" ${st(1)}/><path d="M18 17 Q12 20 8 26 Q14 22 19 20 Z" fill="${a.out[2]}" ${st(0.9)}/>`;
+    case "crown": return `<path d="M21 9 L23 1 L27 6 L31 -1 L35 6 L39 1 L41 9 Z" fill="#ffd34f" ${st(1.1)}/><path d="M23 7 L39 7" stroke="#fff4b8" stroke-width="1" opacity=".8"/><circle cx="31" cy="4" r="1.4" fill="${a.shot[0]}"/>`;
     case "wingclip": return `<path d="M20 9 Q14 4 10 6 Q14 8 15 11 Q11 11 9 14 Q14 14 18 13 Z" fill="url(#${p}g)" ${st(0.9)}/><circle cx="20" cy="11" r="2" fill="${a.shot[0]}" ${st(0.8)}/>`;
     case "witchhat": return `<path d="M17 12 Q31 6 46 11 Q40 4 36 -6 Q34 -9 30 -8 Q26 -2 22 4 Z" fill="${a.out[0]}" ${st(1.2)}/><path d="M17 12 Q31 6 46 11" fill="none" stroke="url(#${p}g)" stroke-width="2"/><path d="M33 -2 L34.2 0.6 L37 1 L35 2.8 L35.6 5.6 L33 4.2 L30.4 5.6 L31 2.8 L29 1 L31.8 .6 Z" fill="${a.shot[0]}"/>`;
     case "headphones": return `<path d="M18 20 Q18 4 32 4 Q45 4 45 18" fill="none" stroke="${OL}" stroke-width="3"/><path d="M18 20 Q18 4 32 4 Q45 4 45 18" fill="none" stroke="${a.out[2]}" stroke-width="1.6"/><rect x="42" y="16" width="6" height="9" rx="2.5" fill="${a.out[1]}" ${st(1)}/>`;
@@ -205,9 +269,10 @@ function avatarSVG(a, frame = "idle", view = "game") {
 <path d="M14 53.6 L84 52.9" stroke="url(#${p}g)" stroke-width="1.6"/><path d="M20 57.4 L80 57" stroke="#ffffff" stroke-width=".9" opacity=".45"/>
 <path d="M40 52 L46 47 L52 52 Z M62 51.6 L66 48 L70 51.4 Z" fill="url(#${p}g)" ${st(1)}/>
 <ellipse cx="2.6" cy="56" rx="${frame === "fire" ? 6 : 4.6}" ry="2.8" fill="url(#${p}c)"/><ellipse cx="2.4" cy="56" rx="2" ry="1.2" fill="#ffffff"/>`;
-  const board = boardKind === "wings" ? wingFeet : boardKind === "skate" ? skate : glider;
+  const hover = `<path d="M8 57 Q10 53 18 53 L80 52.6 Q90 52.6 92 56 Q88 59.4 80 59.4 L18 59.8 Q10 59.8 8 57 Z" fill="url(#${p}m)" ${st(1.4)}/><path d="M18 56 L80 55.6" stroke="${sh}" stroke-width="1.6"/><ellipse cx="30" cy="62.4" rx="9" ry="1.8" fill="url(#${p}c)"/><ellipse cx="66" cy="62.4" rx="9" ry="1.8" fill="url(#${p}c)"/>`;
+  const board = boardKind === "wings" || boardKind === "none" ? wingFeet : boardKind === "skate" ? skate : boardKind === "hover" ? hover : glider;
   const legs = `<ellipse cx="28" cy="${60 + thr / 4}" rx="2.4" ry="${thr / 2 + 1}" fill="${sh}" opacity=".9"/><ellipse cx="35" cy="${60 + thr / 4}" rx="2.4" ry="${thr / 2 + 1}" fill="${sh}" opacity=".9"/>
-<path d="M25.5 49 L30.5 49 L30.5 57.5 Q28 59.2 25.5 57.5 Z" fill="url(#${p}m)" ${st(1.3)}/><path d="M32.5 49 L37.5 49 L37.5 57.5 Q35 59.2 32.5 57.5 Z" fill="url(#${p}m)" ${st(1.3)}/>
+<path d="M25.5 49 L30.5 49 L30.5 57.5 Q28 59.2 25.5 57.5 Z" fill="${a.boots || `url(#${p}m)`}" ${st(1.3)}/><path d="M32.5 49 L37.5 49 L37.5 57.5 Q35 59.2 32.5 57.5 Z" fill="${a.boots || `url(#${p}m)`}" ${st(1.3)}/>
 <rect x="25.5" y="54.4" width="5" height="1.8" fill="url(#${p}g)"/><rect x="32.5" y="54.4" width="5" height="1.8" fill="url(#${p}g)"/>`;
   const torso = `<rect x="24" y="44.6" width="15" height="6" rx="2" fill="${trim}" ${st(1.3)}/>
 <path d="M24 35 L39 35 L39.6 46 Q31.5 48.4 23.4 46 Z" fill="url(#${p}m)" ${st(1.4)}/>
@@ -241,9 +306,14 @@ function wingSVG(a) {
 ${wing(14, 1.45, 0.75)}${wing(-4, 1.75, 1)}</svg>`;
 }
 function registerAvatarSprites() {
-  for (const a of AVATARS) { for (const f of ["idle", "fire", "hurt"]) SPRITE_SVG[`av_${a.id}_${f}`] = avatarSVG(a, f); if (a.board === "wings") SPRITE_SVG[`avw_${a.id}`] = wingSVG(a); }
+  for (const a of AVATARS) { for (const f of ["idle", "fire", "hurt"]) SPRITE_SVG[`av_${a.id}_${f}`] = avatarSVG(a, f); SPRITE_SVG[`avw_${a.id}`] = wingSVG(a); }
 }
 const PORTRAIT_CACHE = {};
-function avatarPortrait(id) { if (!PORTRAIT_CACHE[id]) { const a = AVATAR_BY_ID[id] || AVATARS[0]; PORTRAIT_CACHE[id] = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(avatarSVG(a, "idle", "portrait")); } return PORTRAIT_CACHE[id]; }
+function avatarPortrait(id, av) { const a = av || AVATAR_BY_ID[id] || AVATARS[0], k = a.key || a.id; if (!PORTRAIT_CACHE[k]) PORTRAIT_CACHE[k] = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(avatarSVG(a, "idle", "portrait")); return PORTRAIT_CACHE[k]; }
+// on-demand sprites for customised heroes (resolves once the images are rasterised)
+function ensureAvatarSprites(av) {
+  const k = av.key || av.id; if (SPR[`av_${k}_idle`]) return Promise.resolve();
+  return Promise.all([...["idle", "fire", "hurt"].map((f) => loadOneSprite(`av_${k}_${f}`, avatarSVG(av, f))), loadOneSprite(`avw_${k}`, wingSVG(av))]);
+}
 function avatarFull(id, frame = "idle") { const a = AVATAR_BY_ID[id] || AVATARS[0]; return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(avatarSVG(a, frame)); }
-if (typeof module === "object" && module.exports) module.exports = { AVATARS, avatarSVG, wingSVG, AVATAR_BY_ID, avatarUnlocked, MUZZLES, SPRITE_ANCHOR, WEAPON_CATS, WING_PIVOT, WING_VB };
+if (typeof module === "object" && module.exports) module.exports = { effectiveAvatar, SKINS, SKIN_BY_ID, PARTS, SWATCH, BOOT, ULTS, avatarPrice, AVATARS, avatarSVG, wingSVG, AVATAR_BY_ID, avatarUnlocked, MUZZLES, SPRITE_ANCHOR, WEAPON_CATS, WING_PIVOT, WING_VB };

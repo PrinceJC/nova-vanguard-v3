@@ -66,6 +66,19 @@ const Sound = {
       case "wind": this.burst(0.9, 0.2, 700, 0, undefined, 3); break;
       case "open": this.tone(200, 400, 0.3, "triangle", 0.1); break;
       case "click": this.tone(900, 900, 0.03, "square", 0.05); break;
+      case "coin": [988, 1318].forEach((f, i) => this.tone(f, f, 0.08, "square", 0.07, i * 0.07)); break;
+      case "warnbeep": this.tone(1100, 900, 0.08, "square", 0.06); break;
+      // unique ultimate sounds
+      case "ult_nova": this.tone(1600, 120, 0.5, "sawtooth", 0.16); this.burst(0.7, 0.4, 5000); break;
+      case "ult_cannonball": this.tone(90, 40, 0.6, "sine", 0.4); this.burst(0.4, 0.5, 900); this.tone(300, 60, 0.4, "square", 0.12, 0.05); break;
+      case "ult_laser": this.tone(220, 1800, 0.65, "sawtooth", 0.14); this.tone(440, 3600, 0.65, "square", 0.05); break;
+      case "ult_tsunami": this.burst(1.0, 0.45, 1400, 0, undefined, 4); this.tone(120, 60, 0.9, "sine", 0.25); break;
+      case "ult_blackhole": this.tone(400, 30, 0.8, "sine", 0.3); this.tone(60, 30, 0.9, "sawtooth", 0.12, 0.7); this.burst(0.5, 0.45, 2500, 0.75); break;
+      case "ult_lightning": for (let i = 0; i < 6; i++) { this.burst(0.08, 0.35, 7000, i * 0.05); this.tone(1800 - i * 150, 600, 0.06, "square", 0.08, i * 0.05); } break;
+      case "ult_lances": for (let i = 0; i < 7; i++) this.tone(1400 + i * 90, 500, 0.12, "triangle", 0.08, i * 0.02); this.burst(0.3, 0.25, 6000); break;
+      case "ult_meteor": for (let i = 0; i < 6; i++) { this.tone(900, 120, 0.25, "sawtooth", 0.06, i * 0.09); this.burst(0.3, 0.3, 1800, 0.25 + i * 0.09); } break;
+      case "ult_crystal": for (let i = 0; i < 8; i++) this.tone(1800 + (i % 4) * 300, 2400, 0.1, "triangle", 0.06, i * 0.04); break;
+      case "ult_solar": this.tone(300, 1200, 0.7, "triangle", 0.18); this.tone(600, 2400, 0.7, "sine", 0.08); this.burst(0.7, 0.25, 3000); break;
       case "heal": [523, 784, 1046].forEach((f, i) => this.tone(f, f, 0.12, "triangle", 0.1, i * 0.07)); break;
       case "clear": [523, 659, 784, 1046].forEach((f, i) => this.tone(f, f, 0.18, "square", 0.08, i * 0.12)); break;
     }
@@ -85,6 +98,7 @@ const Sound = {
       g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
       o.connect(g); g.connect(this.mus); o.start(t); o.stop(t + dur + 0.02);
     };
+    if (boss) return this.bossTrack(cfg);
     const tick = () => {
       while (next < this.ctx.currentTime + 0.15) {
         const bar = Math.floor(i / 16) % 4, s = i % 16, ch = prog[bar];
@@ -98,6 +112,26 @@ const Sound = {
       }
     };
     this.seq = setInterval(tick, 40); tick();
+  },
+  bossTrack(cfg) {
+    const root = cfg.root - 2, bpm = 150, step = 60 / bpm / 4, scale = [0, 2, 3, 5, 7, 8, 10];
+    const mf = (deg, oct) => 440 * Math.pow(2, (root + scale[((deg % 7) + 7) % 7] + 12 * (oct + Math.floor(deg / 7)) - 69) / 12);
+    const prog = [0, 0, 5, 6, 0, 0, 3, 4];
+    const note = (f, dur, type, vol, t) => { const o = this.ctx.createOscillator(), g = this.ctx.createGain(); o.type = type; o.frequency.value = f; g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.008); g.gain.exponentialRampToValueAtTime(0.0001, t + dur); o.connect(g); g.connect(this.mus); o.start(t); o.stop(t + dur + 0.02); };
+    let i = 0, next = this.ctx.currentTime + 0.1;
+    const tick = () => {
+      while (next < this.ctx.currentTime + 0.15) {
+        const s = i % 16, bar = Math.floor(i / 16) % 8, ch = prog[bar], dt = next - this.ctx.currentTime;
+        if (s % 4 === 0) { const o = this.ctx.createOscillator(), g = this.ctx.createGain(); o.frequency.setValueAtTime(160, next); o.frequency.exponentialRampToValueAtTime(42, next + 0.14); g.gain.setValueAtTime(0.75, next); g.gain.exponentialRampToValueAtTime(0.0001, next + 0.16); o.connect(g); g.connect(this.mus); o.start(next); o.stop(next + 0.18); }
+        if (s === 4 || s === 12) this.burst(0.14, 0.32, 3200, dt, this.mus);
+        this.burst(0.03, s % 2 ? 0.07 : 0.11, 9000, dt, this.mus);
+        if (s % 2 === 0) note(mf(ch + (s % 4 === 2 ? 4 : 0), -2), step * 1.8, "sawtooth", 0.16, next);
+        if (s % 2 === 1) note(mf(ch + [0, 2, 4, 7][(s >> 1) % 4], 1), step * 1.2, "square", 0.05, next);
+        if (bar % 2 === 1 && s === 0) { note(mf(ch + 7, 1), step * 6, "sawtooth", 0.09, next); note(mf(ch + 9, 1), step * 6, "sawtooth", 0.06, next); }
+        next += step; i++;
+      }
+    };
+    this.seq = setInterval(tick, 30); tick();
   },
   stopMusic() { if (this.seq) clearInterval(this.seq); this.seq = null; },
   duck(on) { if (this.ctx) this.master.gain.setTargetAtTime(on ? 0.25 : 1, this.ctx.currentTime, 0.08); },

@@ -2,10 +2,9 @@
 // ============================================================ sprite cache
 const SPR = {};
 function svgURI(s) { return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(s); }
-function loadSprites() {
-  const names = Object.keys(SPRITE_SVG);
-  return Promise.all(names.map((n) => new Promise((res) => {
-    const svg = SPRITE_SVG[n];
+function loadSprites() { return Promise.all(Object.keys(SPRITE_SVG).map((n) => loadOneSprite(n, SPRITE_SVG[n]))); }
+function loadOneSprite(n, svg) {
+  return new Promise((res) => {
     const m = svg.match(/viewBox="[^"]*?\s([\d.]+)\s([\d.]+)"/), vw = parseFloat(m[1]), vh = parseFloat(m[2]);
     const big = Math.max(vw, vh), k = big > 120 ? 2.2 : big > 70 ? 4.5 : 6, pw = Math.round(vw * k), ph = Math.round(vh * k);
     const img = new Image();
@@ -24,7 +23,7 @@ function loadSprites() {
     };
     img.onerror = () => res();
     img.src = svgURI(svg);
-  })));
+  });
 }
 function whiteOf(s) { // hit-flash silhouette, created the first time it is needed
   if (!s.w) { const w = document.createElement("canvas"); w.width = s.c.width; w.height = s.c.height; const wx = w.getContext("2d"); wx.drawImage(s.c, 0, 0); wx.globalCompositeOperation = "source-in"; wx.fillStyle = "#fff"; wx.fillRect(0, 0, w.width, w.height); s.w = w; }
@@ -177,6 +176,7 @@ function drawHazard(ctx, h, g, now) {
       }
       break;
     }
+    case "bomb": drawBomb(ctx, h, now); break;
     case "marker": {
       const r = h.r * (1.4 - 0.4 * (h.t / h.tele));
       ctx.strokeStyle = "#ff3fb4"; ctx.lineWidth = 2.5; ctx.setLineDash([6, 5]); ctx.globalAlpha = 0.8;

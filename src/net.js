@@ -1,10 +1,11 @@
 "use strict";
 // ============================================================ save model (v2) + one-time migration of the v1 local save
 const V1_KEY = "lumi-blaster-save-v1";
-const DEFAULT_SETTINGS = { music: 0.6, sfx: 0.8, musicMute: false, sfxMute: false, autofire: false, reduced: false, quality: 2, shake: 0.7 };
+const DEFAULT_SETTINGS = { music: 0.6, sfx: 0.8, musicMute: false, sfxMute: false, autofire: false, reduced: false, quality: 2, shake: 0.7, joySens: 1 };
+const CUSTOM_KEYS = ["skin", "hat", "back", "ride", "weapon", "color", "boots"];
 function blankSave() {
   return { v: 2, campaign: { unlocked: 1, completed: Array(100).fill(false), best: Array(100).fill(0), levelTier: Array(100).fill(1), run: null, bestTotal: 0, lastTotal: 0 },
-    avatars: { selected: "lumi", unlocked: [] }, settings: { ...DEFAULT_SETTINGS }, migrations: {} };
+    avatars: { selected: "lumi", unlocked: [] }, settings: { ...DEFAULT_SETTINGS }, migrations: {}, shop: { coins: 0, owned: [], custom: {} } };
 }
 const int = (v, a, b, d) => (v !== null && v !== "" && Number.isFinite(+v) ? Math.min(b, Math.max(a, Math.floor(+v))) : d);
 function sanitizeSave(r) {
@@ -22,17 +23,29 @@ function sanitizeSave(r) {
   if (r.avatars && typeof r.avatars === "object" && typeof r.avatars.selected === "string" && AVATAR_BY_ID[r.avatars.selected]) s.avatars.selected = r.avatars.selected;
   if (r.settings && typeof r.settings === "object") {
     for (const k of ["music", "sfx", "shake"]) if (Number.isFinite(+r.settings[k])) s.settings[k] = Math.min(1, Math.max(0, +r.settings[k]));
+    if (Number.isFinite(+r.settings.joySens)) s.settings.joySens = Math.min(2, Math.max(0.5, +r.settings.joySens));
     if ([0, 1, 2].includes(r.settings.quality)) s.settings.quality = r.settings.quality;
     for (const k of ["musicMute", "sfxMute", "autofire", "reduced"]) if (typeof r.settings[k] === "boolean") s.settings[k] = r.settings[k];
   }
   if (r.migrations && typeof r.migrations === "object") s.migrations = { ...r.migrations };
+  // coins, purchases and per-hero customisation (cosmetic only; never affect scores)
+  const sh = r.shop && typeof r.shop === "object" ? r.shop : {};
+  s.shop.coins = int(sh.coins, 0, 1e9, 0);
+  if (Array.isArray(sh.owned)) s.shop.owned = [...new Set(sh.owned.filter((x) => typeof x === "string" && /^(av|skin|part):[a-z_]+(:[a-zA-Z_]+)?$/.test(x)))].slice(0, 500);
+  if (sh.custom && typeof sh.custom === "object") for (const [id, c] of Object.entries(sh.custom)) {
+    if (!AVATAR_BY_ID[id] || !c || typeof c !== "object") continue;
+    const o = {};
+    for (const k of CUSTOM_KEYS) { const v = c[k]; if (typeof v !== "string") continue; if (k === "skin" ? SKIN_BY_ID[v] && SKIN_BY_ID[v].avatar === id : PARTS[k] && v in PARTS[k]) o[k] = v; }
+    if (Object.keys(o).length) s.shop.custom[id] = o;
+  }
   refreshUnlocks(s);
   return s;
 }
 function completedCount(s) { return s.campaign.completed.filter(Boolean).length; }
 function refreshUnlocks(s) {
   const n = completedCount(s);
-  s.avatars.unlocked = AVATARS.filter((a) => avatarUnlocked(a, n)).map((a) => a.id);
+  const bought = new Set((s.shop ? s.shop.owned : []).filter((x) => x.startsWith("av:")).map((x) => x.slice(3)));
+  s.avatars.unlocked = AVATARS.filter((a) => avatarUnlocked(a, n) || bought.has(a.id)).map((a) => a.id);
   if (!s.avatars.unlocked.includes(s.avatars.selected)) s.avatars.selected = "lumi";
   return s;
 }
@@ -65,6 +78,7 @@ function mergeSaves(cloud, local, useLocalSettings) {
   m.campaign.run = !ra ? rb : !rb ? ra : rb.level > ra.level || (rb.level === ra.level && rb.score > ra.score) ? rb : ra;
   m.campaign.bestTotal = Math.max(a.campaign.bestTotal, b.campaign.bestTotal);
   m.migrations = { ...b.migrations, ...a.migrations };
+  m.shop = { coins: Math.max(a.shop.coins, b.shop.coins), owned: [...new Set([...a.shop.owned, ...b.shop.owned])], custom: { ...b.shop.custom, ...a.shop.custom } };
   return sanitizeSave(m);
 }
 
@@ -111,6 +125,7 @@ function friendlyError(e) {
   if (/expired|invalid.*(otp|token)|token.*(invalid|expired)/i.test(m)) return "That code is wrong or has expired. Request a new one.";
   if (/only request this after (\d+)/i.test(m)) return "Please wait " + m.match(/after (\d+)/i)[1] + " seconds before requesting another code.";
   if (/rate limit|too many/i.test(m)) return "Too many attempts. Wait a minute and try again.";
+  if (/anonymous.*disabled|Anonymous sign-ins are disabled/i.test(m)) return "OFFLINE_ONLY";
   if (/phone.*(provider|sms)|Unsupported phone provider/i.test(m)) return "Text-message codes aren’t set up on this server yet. Use email instead.";
   if (/Failed to fetch|NetworkError|network/i.test(m)) return "Couldn’t reach the server. Check your connection and try again.";
   return m || "Something went wrong. Try again.";
@@ -148,6 +163,17 @@ const Net = {
     if (error) throw error;
     this.session = data.session; this.user = data.user || (data.session && data.session.user);
   },
+  // ---- nickname play (anonymous guest account) ----
+  isGuest() { return !!(this.user && (this.user.is_anonymous || (this.user.app_metadata && this.user.app_metadata.provider === "anonymous") || (!this.user.email && !this.user.phone))); },
+  async guestStart(nickname) {
+    const { data, error } = await this.sb.auth.signInAnonymously({ options: { data: { username: nickname } } });
+    if (error) throw error;
+    this.session = data.session; this.user = data.user || (data.session && data.session.user);
+    try { return await this.claimUsername(nickname); }
+    catch (e) { await this.sb.auth.signOut().catch(() => {}); this.session = null; this.user = null; throw e; }   // nickname taken: discard the empty guest
+  },
+  // turn a guest into a full account (keeps the same id, progress and scores)
+  async secureGuest(email, password) { const { error } = await this.sb.auth.updateUser({ email, password }); if (error) throw error; await this.refreshUser(); },
   // ---- username + password
   async usernameLogin(username, password) {
     const r = await fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username, password }) });
@@ -193,6 +219,20 @@ const Net = {
   async standing(kind, key) { const { data, error } = await this.sb.rpc("get_my_standing", { p_kind: kind, p_key: key || null }); if (error) throw error; return (data && data[0]) || null; },
   async periods(kind) { const { data, error } = await this.sb.rpc("list_periods", { p_kind: kind, p_limit: 60 }); if (error) throw error; return data || []; },
   async endlessBest() { const { data, error } = await this.sb.rpc("my_endless_best"); if (error) throw error; return (data && data[0]) || null; },
+  // ---- multiplayer rooms ----
+  mp: null,
+  mpJoin(code, me, on) {
+    this.mpLeave();
+    const key = (me.id || "guest") + "-" + Math.random().toString(36).slice(2, 6);
+    const ch = this.sb.channel("nv-room-" + code, { config: { broadcast: { self: false }, presence: { key } } });
+    ch.on("presence", { event: "sync" }, () => on.presence(Object.entries(ch.presenceState()).map(([k, v]) => ({ key: k, ...(v[0] || {}) }))));
+    ch.on("broadcast", { event: "msg" }, ({ payload }) => on.msg(payload));
+    ch.subscribe(async (status) => { if (status === "SUBSCRIBED") { await ch.track({ ...me, key, joined: Date.now() }); on.ready && on.ready(key); } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") on.error && on.error(status); });
+    this.mp = { ch, key, code };
+    return key;
+  },
+  mpSend(payload) { if (this.mp) this.mp.ch.send({ type: "broadcast", event: "msg", payload: { ...payload, from: this.mp.key } }); },
+  mpLeave() { if (this.mp) { try { this.sb.removeChannel(this.mp.ch); } catch (e) {} this.mp = null; } },
   async signOut() { try { await this.sb.auth.signOut(); } finally { this.session = null; this.user = null; this.profile = null; } },
 };
 

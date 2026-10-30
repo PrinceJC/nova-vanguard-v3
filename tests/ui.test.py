@@ -11,7 +11,7 @@ async def main():
         await pg.goto(URL); await pg.evaluate(f"()=>{{localStorage.clear(); localStorage.setItem('lumi-blaster-save-v1', JSON.stringify({json.dumps(V1)}))}}"); await pg.reload(); await pg.wait_for_timeout(1500)
         S = lambda: pg.evaluate("()=>window.__lumi.screen()")
         # ---------- sign-up: username → password → email → code → menu
-        await pg.click(".lhero >> text=Create Account")
+        await pg.click(".lhero >> text=Play Now"); await pg.click("text=Create a full account")
         await pg.fill("input[autocomplete=username]", "Nova_Pilot"); await pg.wait_for_timeout(600); await pg.click("text=Next")
         await pg.fill("input[autocomplete=new-password] >> nth=0", "short"); await pg.click("button:has-text('Next')")
         ok("at least 8" in (await pg.inner_text("#pwhint")).lower(), "weak password rejected: " + await pg.inner_text("#pwhint"))
@@ -32,7 +32,7 @@ async def main():
         sv = await pg.evaluate("()=>window.__lumi.save()"); ok(sv["campaign"]["unlocked"] == 4, "old local progress migrated (unlocked 4)")
         # ---------- sign out → sign in with username + password
         await pg.get_by_role("button", name="Sign out", exact=True).click(); await pg.wait_for_timeout(500)
-        await pg.click(".lhero >> text=Play Now")
+        await pg.click(".lhero >> text=Sign in")
         await pg.fill("input[autocomplete=username]", "nova_pilot"); await pg.fill("input[autocomplete=current-password]", "wrongpass1"); await pg.click("button:has-text('Sign in')"); await pg.wait_for_timeout(300)
         ok("don’t match" in await pg.inner_text(".err"), "wrong password error: " + await pg.inner_text(".err"))
         await pg.fill("input[autocomplete=current-password]", "starlight42"); await pg.click("button:has-text('Sign in')"); await pg.wait_for_timeout(1500)
@@ -43,13 +43,13 @@ async def main():
         ok("updated" in await pg.inner_text(".ok"), "password changed in profile")
         await pg.get_by_role("button", name="Sign out", exact=True).click(); await pg.wait_for_timeout(400)
         # ---------- forgot password → code → new password → sign in
-        await pg.click(".lhero >> text=Play Now"); await pg.click("text=Forgot password?")
+        await pg.click(".lhero >> text=Sign in"); await pg.click("text=Forgot password?")
         await pg.fill("input[type=email]", "nova@example.com"); await pg.click("button:has-text('Send code')"); await pg.wait_for_timeout(300)
         await pg.fill("input.code", "123456"); await pg.click("button:has-text('Verify')"); await pg.wait_for_timeout(800)
         await pg.fill("input[autocomplete=new-password] >> nth=0", "recovered99"); await pg.fill("input[autocomplete=new-password] >> nth=1", "recovered99"); await pg.click("text=Save password"); await pg.wait_for_timeout(1500)
         ok(await S() == "menu", "recovered account and set a new password")
         await pg.get_by_role("button", name="Sign out", exact=True).click(); await pg.wait_for_timeout(400)
-        await pg.click(".lhero >> text=Play Now"); await pg.fill("input[autocomplete=username]", "Nova_Pilot"); await pg.fill("input[autocomplete=current-password]", "recovered99"); await pg.click("button:has-text('Sign in')"); await pg.wait_for_timeout(1500)
+        await pg.click(".lhero >> text=Sign in"); await pg.fill("input[autocomplete=username]", "Nova_Pilot"); await pg.fill("input[autocomplete=current-password]", "recovered99"); await pg.click("button:has-text('Sign in')"); await pg.wait_for_timeout(1500)
         ok(await S() == "menu", "signed in with the new password")
         # ---------- avatar selection screen
         await pg.evaluate("()=>{const s=window.__lumi.save();}")

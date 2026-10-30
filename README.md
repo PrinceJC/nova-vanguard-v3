@@ -98,7 +98,19 @@ npm test             # weapon/elite, endless anti-cheat, API, saves/migration, d
 ```
 Browser tests (`tests/*.py`) use Playwright with a **test-only** fake backend (`tests/fake-backend.js`, built into `tests/test.html` only, never into `public/`).
 
-## 8. Accounts
+## 8. Nickname play (no account needed)
+
+Players tap **Play Now**, type a nickname, and start playing. Behind the scenes the game uses Supabase **anonymous sign-ins**: each device gets a private guest account linked to the nickname, so cloud saves, ranked Endless and leaderboards all work without an email or password.
+
+**Two settings in Supabase:**
+1. **Authentication → Sign In / Providers → Allow anonymous sign-ins: ON.**
+2. **SQL Editor:** run `supabase/migrations/20261027000000_nickname_play.sql` (lets guests claim nicknames).
+
+Nicknames follow the username rules (3–20 letters, numbers, underscores) and are unique. A guest can open **Profile → Keep your progress safe** to add an email and password; after that they can sign in with their nickname on any device, and nothing is lost. Signing out of a guest profile shows a warning first, because guest progress is tied to that device.
+
+If anonymous sign-ins are off or the server can’t be reached, the game still lets people play with a nickname and a **local save on the device**; Endless runs are then unranked practice. Players who already have a username and password use **Sign in** on the start screen.
+
+## 8b. Accounts (optional)
 
 - **Sign up:** username → password (8+ characters with a letter and a number) → email or mobile number → verify (if enabled) → play.
 - **Sign in:** username + password. The server (`api/login.js`) looks up the account privately, so emails and phone numbers are never revealed.
@@ -120,7 +132,19 @@ Browser tests (`tests/*.py`) use Playwright with a **test-only** fake backend (`
 - **Touch:** a floating joystick on the left (drag anywhere), auto-fire, and a Blast button on the right; moving and blasting work at the same time. Controls sit inside the safe area (notches, rounded corners, home indicator). Scrolling, pinch/double-tap zoom and text selection are blocked during play.
 - **Performance:** if frames run slow, the game automatically trims effects and then canvas resolution. **Settings → Graphics** can also be set to Low manually.
 
-## 11. Gameplay reference (rules version 10)
+## 10b. Major update: ultimates, Endless bosses, coins & shop, customization, multiplayer
+
+- **Ultimates:** every hero has a uniquely named ultimate (the Blast button / E). Ten types: Nova ring, Cannonball, Sweeping laser, Tsunami wave, Black hole, Chain lightning, Piercing lances, Meteor shower, Homing crystal storm and Solar flare. Each has its own sound and deals the original blast's damage (10, bosses 14) to what it touches, clearing enemy bullets in its area. Charges work as before (start 1, hold 3, pickups add 1).
+- **Endless bosses:** every 30,000 points the field clears and an Endless-only boss arrives: Octo Queen (jellyfish bombs), Blade Sovereign (boomerang blades), Hive Matriarch (homing bees, honey bombs), Magma Titan (meteors, lava bombs), Mirror Wraith (teleports, mirror lasers) and Frost Hydra (ice beams, frost bombs). Bombs show their landing circle before they burst. Regular enemies pause until the boss falls; defeating it gives a 3,000+ bonus. Boss fights play their own driving music.
+- **Fast-enemy warnings:** darts, torpedoes, drills and wasps flash a red marker at the right edge about 1.2 s before they enter, in both modes.
+- **Joystick sensitivity:** Settings → Joystick sensitivity (Low / Normal / High / Max).
+- **Coins & shop:** every Campaign level, Endless run and multiplayer match converts points to coins (1 per 100 points; +5 for a duel win). Spend them in **Shop** on locked heroes, 14 skins and customization parts. Everything is cosmetic: stats and hitbox never change.
+- **Customization (Avatars → Customize):** headwear, wings, ride (glider, hoverboard, skateboard, none), weapon (cannon, bow, sniper, gun, wand, shield; changes projectiles), outfit color and boots. Defaults are free; extras cost coins.
+- **Multiplayer (survival duel):** create a room and share the 6-letter code or invite link; your friend picks a nickname and joins automatically. Both players get the same waves; each plays on their own screen with a live view of the rival. Whoever survives longest wins. Uses **Supabase Realtime** (broadcast + presence), which is on by default in Supabase projects; no database changes needed. Duels are unranked.
+
+## 11. Gameplay reference (rules version 11)
+
+- **Endless bosses (ranked):** due at each 30,000 points; the server rebuilds the score timeline to check each boss started on time, was beaten at a possible rate, and that paused spawns resumed correctly. Rocks and shot-down projectiles score nothing in Endless.
 
 - **Scoring (both modes):** points are awarded once, when an enemy is defeated: basic 5, tougher 10, larger 15, and +5 for each higher tier (armored Bulwarks 15–30, elites +2 tiers). There are no point pickups. Survival milestones, level-clear, health, no-hit, boss and max-power bonuses are unchanged.
 - **Lives:** every run starts with 3 lives and nothing restores them.

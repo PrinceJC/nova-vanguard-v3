@@ -10,7 +10,7 @@ await db.exec(`
   create role anon nologin; create role authenticated nologin;
   create schema auth;
   grant usage on schema auth to anon, authenticated;
-  create table auth.users (id uuid primary key, email text, phone text, email_confirmed_at timestamptz, phone_confirmed_at timestamptz);
+  create table auth.users (id uuid primary key, email text, phone text, email_confirmed_at timestamptz, phone_confirmed_at timestamptz, is_anonymous boolean default false);
   create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
   grant usage on schema public to anon, authenticated;
 `);
@@ -18,7 +18,7 @@ for (const f of fs.readdirSync(new URL("../supabase/migrations/", import.meta.ur
 console.log("Migration applied.");
 
 const A = "11111111-1111-1111-1111-111111111111", B = "22222222-2222-2222-2222-222222222222", C = "33333333-3333-3333-3333-333333333333", U = "44444444-4444-4444-4444-444444444444";
-await db.exec(`insert into auth.users values ('${A}','a@x.com',null,now(),null),('${B}',null,'+639171234567',null,now()),('${C}','c@x.com',null,now(),null),('${U}','u@x.com',null,null,null)`);
+await db.exec(`insert into auth.users values ('${A}','a@x.com',null,now(),null,false),('${B}',null,'+639171234567',null,now(),false),('${C}','c@x.com',null,now(),null,false),('${U}','u@x.com',null,null,null,false)`);
 async function as(uid, sql, params) {
   await db.exec(`set role ${uid ? "authenticated" : "anon"}`);
   await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [uid || ""]);
@@ -32,6 +32,12 @@ await t("availability check is case-insensitive", async () => { assert.strictEqu
 await t("taken username (different case) is rejected with USERNAME_TAKEN", () => fails(as(B, "select public.claim_username('LUMI_01')"), /USERNAME_TAKEN/));
 await t("invalid usernames are rejected", async () => { for (const n of ["ab", "this_name_is_way_too_long", "bad name", "émile", "dash-ed"]) await fails(as(B, "select public.claim_username($1)", [n]), /USERNAME_INVALID/); });
 await t("phone-verified user claims a username", async () => { await as(B, "select public.claim_username('Nova')"); });
+const G = "55555555-5555-5555-5555-555555555555";
+await t("nickname play: an anonymous guest can claim a unique nickname without verification", async () => {
+  await db.exec(`insert into auth.users (id, is_anonymous) values ('${G}', true)`);
+  const r = await as(G, "select (public.claim_username('StarGuest')).username::text u"); assert.strictEqual(r.rows[0].u, "StarGuest");
+  await fails(as(G, "select public.claim_username('nova')"), /USERNAME_TAKEN/);
+});
 await t("unverified account cannot claim a username", () => fails(as(U, "select public.claim_username('Sneaky')"), /NOT_VERIFIED/));
 await t("database enforces uniqueness even bypassing the RPC", () => fails(db.query(`insert into public.profiles (id, username) values ('${C}', 'NOVA')`), /duplicate|unique/));
 await t("rename keeps the same account id (progress stays linked)", async () => {

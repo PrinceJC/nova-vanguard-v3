@@ -8,7 +8,7 @@ const CAMPAIGN_HP_CAP = 2, ENEMY_SCALE = 2.1, ELITE_SCALE = 1.5, FIRE_INT = Endl
 const PLAYER_ART_W = 150, PLAYER_ART_K = 150 / 104, PLAYER_HITBOX = 6;
 const MUZZLE_DX = (MUZZLES.cannon[0] - SPRITE_ANCHOR[0]) * PLAYER_ART_K, MUZZLE_DY = (MUZZLES.cannon[1] - SPRITE_ANCHOR[1]) * PLAYER_ART_K;
 // projectile origin for an avatar's weapon (firearm muzzle or bow release point), relative to the hitbox centre
-function muzzleFor(id) { const a = AVATAR_BY_ID[id] || AVATARS[0], m = MUZZLES[a.cat]; return [(m[0] - SPRITE_ANCHOR[0]) * PLAYER_ART_K, (m[1] - SPRITE_ANCHOR[1]) * PLAYER_ART_K]; }
+function muzzleFor(id, av) { const a = av || AVATAR_BY_ID[id] || AVATARS[0], m = MUZZLES[a.cat]; return [(m[0] - SPRITE_ANCHOR[0]) * PLAYER_ART_K, (m[1] - SPRITE_ANCHOR[1]) * PLAYER_ART_K]; }
 // tier 1: one shot; tier 2: centre + two angled; tier 3: three symmetrical pairs
 const SHOT_PATTERNS = [null, [0], [0, -0.1, 0.1], [-0.05, 0.05, -0.14, 0.14, -0.24, 0.24]];
 const QUALITY_PARTS = [120, 240, 360], QUALITY_MULT = [0.4, 0.75, 1];
@@ -64,16 +64,17 @@ function createGame(opts) {
   const L = endless ? null : getLevel(opts.level);
   const g = {
     mode: endless ? "endless" : "campaign", level: endless ? 0 : L.n, L, lv: endless ? { pal: WORLDS[0].pal, bg: WORLDS[0].bg, name: "Endless", music: WORLDS[9].music, world: WORLDS[0] } : L,
-    t: 0, state: endless ? "endless" : "intro", stateT: 0, avatar: opts.avatar || "lumi", muzzle: muzzleFor(opts.avatar || "lumi"), quality: opts.quality ?? 2,
+    t: 0, state: endless ? "endless" : "intro", stateT: 0, avatar: opts.avatar || "lumi", av: opts.av || AVATAR_BY_ID[opts.avatar || "lumi"] || AVATARS[0], quality: opts.quality ?? 2, versus: !!opts.versus,
     player: { x: 150, y: H / 2, hp: PLAYER_HP, tier: endless ? 1 : clamp(opts.tier | 0, 1, 3), inv: 0, shield: 0, shieldMax: 6, fireCd: 0, specialCd: 0, charge: 0, pullX: 0, pullY: 0, pushX: 0, firing: false, dead: false, muzzle: 0, recoil: 0, tilt: 0, hurtT: 0, healT: 0, upT: 0, deadT: 0, bullet: null, blasts: EndlessRules.BLAST_START },
     enemies: [], pbul: [], ebul: [], pickups: [], parts: [], hz: [], queue: [], obs: [], texts: [], blast: null,
     boss: null, bossesSpawned: 0, waves: endless ? [] : buildCampaignWaves(L.n), waveIdx: 0, waveT: 1.2, sinceLast: 0,
     score: 0, kills: 0, hitsTaken: 0, events: [], shake: 0, flash: 0, scroll: 0, hpSpawns: 0,
     diff: endless ? 1 : 1 + Math.min(0.35, (L.n - 1) * 0.0035), fireDiff: endless ? 1 : 1 + (L.n - 1) * 0.005, god: !!opts.god, bossTime: 0,
   };
+  g.muzzle = muzzleFor(g.avatar, g.av);
   if (endless) {
-    g.seed = opts.seed >>> 0; g.sched = EndlessRules.createSchedule(g.seed); g.dropState = EndlessRules.newDropState();
-    g.rec = { v: EndlessRules.VERSION, kills: [], picks: [], hits: [], blasts: [], end: 0 };
+    g.seed = opts.seed >>> 0; g.pending = []; g.nextBoss = EndlessRules.BOSS_EVERY_POINTS; g.bossIdx = 0; g.sched = EndlessRules.createSchedule(g.seed); g.dropState = EndlessRules.newDropState();
+    g.rec = { v: EndlessRules.VERSION, kills: [], picks: [], hits: [], blasts: [], bosses: [], end: 0 };
     g.spawnMap = new Map(); g.upDone = {}; g.milestone = 0; g.elites = 0; g.theme = 0;
   }
   return g;
@@ -286,27 +287,61 @@ function special(g) {
   ev(g, "sfx", { name: "charge" });
   return true;
 }
+// ---------------- ultimates: every hero has a unique ultimate; all deal the original blast's damage (10, bosses 14)
+// to what they touch and finish within ~0.9 s of release, then clear enemy bullets in their area.
 function releaseBlast(g) {
-  const p = g.player;
-  g.blast = { x: p.x + g.muzzle[0] - 10, y: p.y + g.muzzle[1], r: 0, hitE: new Set(), hitO: new Set(), bossHit: false, partsHit: new Set() };
-  g.shake = Math.max(g.shake, 0.35); g.flash = Math.max(g.flash, 0.18);
-  ev(g, "sfx", { name: "special" });
+  const p = g.player, av = g.av, ul = av.ult || { type: "nova", color: av.shot[0] };
+  const ox = p.x + g.muzzle[0], oy = p.y + g.muzzle[1];
+  const U = { type: ul.type, color: ul.color, u: 0, x: ox, y: oy, hit: new Set(), parts: new Set(), boss: false };
+  if (U.type === "blackhole") { U.cx = Math.min(W - 170, p.x + 330); U.cy = clamp(p.y, 120, H - 120); }
+  if (U.type === "lightning") { const pool = g.enemies.filter((e) => e.x < W + 10 && e.t >= 0.2); const chain = []; let cx = ox, cy = oy;
+    while (chain.length < 18 && pool.length) { let bi = -1, bd = 1e12; pool.forEach((e, i) => { const d = d2(cx, cy, e.x, e.y); if (d < bd) { bd = d; bi = i; } }); if (chain.length && bd > 420 * 420) break; const e = pool.splice(bi, 1)[0]; chain.push(e); cx = e.x; cy = e.y; }
+    U.chain = chain; }
+  if (U.type === "lances") U.spears = [-0.5, -0.33, -0.16, 0, 0.16, 0.33, 0.5].map((a) => ({ a, x: ox, y: oy }));
+  if (U.type === "meteor") { const tg = g.enemies.filter((e) => e.x < W).slice(0, 12); U.meteors = Array.from({ length: 12 }, (_, i) => { const e = tg[i]; return { x: e ? e.x : rand(320, W - 60), y: e ? e.y : rand(80, H - 80), ti: 0.1 + i * 0.04, done: false }; }); }
+  if (U.type === "crystal") { const tg = g.enemies.filter((e) => e.x < W + 10 && e.t >= 0.2).sort((a, b) => d2(a.x, a.y, ox, oy) - d2(b.x, b.y, ox, oy)).slice(0, 24);
+    U.shards = Array.from({ length: 24 }, (_, i) => ({ e: tg[i % Math.max(1, tg.length)] || null, tx: rand(400, W), ty: rand(60, H - 60), arr: 0.35 + (i % 6) * 0.04, x: ox, y: oy, done: false })); }
+  g.blast = U;
+  g.shake = Math.max(g.shake, 0.35); g.flash = Math.max(g.flash, 0.15);
+  ev(g, "sfx", { name: "ult_" + U.type });
+}
+function ultHit(g, U, e) { if (U.hit.has(e) || e.dead || e.x > W + 10 || e.t < 0.2) return; U.hit.add(e); e.kb = 220; impact(g, { x: e.x - e.r * 0.6, y: e.y }); particle(g, e.x, e.y, U.color, 6, 160, 0.35, 2.5); damageEnemy(g, e, 10, true, 1); }
+function ultBoss(g, U, test) {
+  const b = g.boss; if (!b || b.entering || b.dying) return;
+  for (const pt of b.parts) if (pt.alive && !U.parts.has(pt) && test(pt.x, pt.y, pt.r)) { U.parts.add(pt); damagePart(g, pt, 14); }
+  if (!U.boss && b.body.length && test(b.body[0].x, b.body[0].y, b.body[0].r)) { U.boss = true; damageBoss(g, null, 14, true); }
+}
+function ultSweep(g, U, test) {   // apply to enemies, obstacles, bullets and the boss with one geometric test (x, y, r) → bool
+  for (const e of g.enemies) if (test(e.x, e.y, e.r)) ultHit(g, U, e);
+  for (const o of g.obs) if (o.hp && !U.hit.has(o) && test(o.x, o.y, o.r || 18)) { U.hit.add(o); damageObstacle(g, o, 10); }
+  const before = g.ebul.length; g.ebul = g.ebul.filter((b) => b.rock || !test(b.x, b.y, b.r)); if (g.mode === "campaign") g.score += (before - g.ebul.length) * 5;
+  ultBoss(g, U, test);
 }
 function updateBlast(g, dt) {
-  const B = g.blast; if (!B) return;
-  B.r += BLAST_SPEED * dt;
-  const r2 = B.r * B.r;
-  let cleared = 0;
-  g.ebul = g.ebul.filter((b) => { if (b.rock || d2(b.x, b.y, B.x, B.y) > r2) return true; cleared++; if (g.quality > 0 && cleared % 3 === 0) particle(g, b.x, b.y, "#a8fbff", 1, 40, 0.3, 2); return false; });
-  if (cleared && g.mode === "campaign") g.score += cleared * 5;
-  for (const e of g.enemies) if (!B.hitE.has(e) && e.x < W + 10 && e.t >= 0.2 && d2(e.x, e.y, B.x, B.y) <= r2) { B.hitE.add(e); e.kb = 260; impact(g, { x: e.x - e.r * 0.6, y: e.y }); particle(g, e.x, e.y, "#a8fbff", 6, 160, 0.35, 2.5); damageEnemy(g, e, 10, true, 1); }
-  for (const o of g.obs) if (!B.hitO.has(o) && o.hp && d2(o.x, o.y, B.x, B.y) <= r2) { B.hitO.add(o); damageObstacle(g, o, 10); }
-  const b = g.boss;
-  if (b && !b.entering && !b.dying) {
-    for (const pt of b.parts) if (pt.alive && !B.partsHit.has(pt) && d2(pt.x, pt.y, B.x, B.y) <= r2) { B.partsHit.add(pt); damagePart(g, pt, 14); }
-    if (!B.bossHit && b.body.length && d2(b.body[0].x, b.body[0].y, B.x, B.y) <= (B.r + b.body[0].r) ** 2) { B.bossHit = true; damageBoss(g, null, 14, true); }
+  const U = g.blast; if (!U) return;
+  U.u += dt; const u = U.u, p = g.player;
+  switch (U.type) {
+    case "cannonball": U.bx = U.x + 1300 * u; ultSweep(g, U, (x, y, r) => Math.abs(y - U.y) < 46 + r && x <= U.bx + 46 && x >= U.x - 20); if (U.bx > W + 80) { explosion(g, W - 20, U.y, 2); g.blast = null; } break;
+    case "laser": { U.ang = -0.6 + 1.2 * Math.min(1, u / 0.6); ultSweep(g, U, (x, y, r) => { const dx = x - U.x, dy = y - U.y; if (dx < 0) return false; const a = Math.atan2(dy, dx), dist = Math.hypot(dx, dy) || 1; return Math.abs(a - U.ang) < 0.07 + r / dist; }); if (u > 0.7) g.blast = null; break; }
+    case "tsunami": U.wx = U.x - 40 + 1200 * u; ultSweep(g, U, (x, y, r) => x - r <= U.wx + 30); if (U.wx > W + 60) g.blast = null; break;
+    case "solar": U.sy = -20 + (H + 60) * Math.min(1, u / 0.7); ultSweep(g, U, (x, y, r) => y - r <= U.sy + 26); if (u > 0.75) g.blast = null; break;
+    case "blackhole": {
+      if (u < 0.75) { for (const e of g.enemies) { const dd = Math.sqrt(d2(e.x, e.y, U.cx, U.cy)); if (dd < 430 && dd > 10 && e.x < W + 10) { e.x += (U.cx - e.x) * dt * 3; e.y += (U.cy - e.y) * dt * 3; e.y0 = e.y; } }
+        g.ebul = g.ebul.filter((b) => b.rock || d2(b.x, b.y, U.cx, U.cy) > (200 + u * 300) ** 2); }
+      else if (!U.collapsed) { U.collapsed = true; ultSweep(g, U, (x, y, r) => d2(x, y, U.cx, U.cy) <= (430 + r) ** 2); explosion(g, U.cx, U.cy, 3); g.shake = Math.max(g.shake, 0.4); }
+      if (u > 0.95) g.blast = null; break;
+    }
+    case "lightning": { const n = U.chain.length; for (let i = 0; i < n; i++) if (u >= i * 0.04) { const e = U.chain[i]; ultHit(g, U, e); } ultSweep(g, U, (x, y, r) => d2(x, y, p.x, p.y) < 230 * 230 || U.chain.some((e) => d2(x, y, e.x, e.y) < (70 + r) ** 2)); if (u > Math.max(0.35, n * 0.04 + 0.2)) g.blast = null; break; }
+    case "lances": { let alive = 0; for (const s of U.spears) { s.x = U.x + Math.cos(s.a) * 1500 * u; s.y = U.y + Math.sin(s.a) * 1500 * u; if (s.x < W + 40 && s.y > -40 && s.y < H + 40) alive++; }
+      ultSweep(g, U, (x, y, r) => U.spears.some((s) => { const dx = x - U.x, dy = y - U.y, along = dx * Math.cos(s.a) + dy * Math.sin(s.a), perp = Math.abs(dx * Math.sin(s.a) - dy * Math.cos(s.a)); return along >= 0 && along <= 1500 * u && perp < 18 + r; }));
+      if (!alive || u > 0.9) g.blast = null; break; }
+    case "meteor": { for (const m of U.meteors) if (!m.done && u >= m.ti + 0.25) { m.done = true; ultSweep(g, U, (x, y, r) => d2(x, y, m.x, m.y) <= (85 + r) ** 2); explosion(g, m.x, m.y, 1.2); }
+      if (U.meteors.every((m) => m.done)) g.blast = null; break; }
+    case "crystal": { for (const s of U.shards) { const tx = s.e && !s.e.dead ? s.e.x : s.tx, ty = s.e && !s.e.dead ? s.e.y : s.ty, k = Math.min(1, u / s.arr); s.x = U.x + (tx - U.x) * k; s.y = U.y + (ty - U.y) * k - Math.sin(k * Math.PI) * 60;
+        if (!s.done && k >= 1) { s.done = true; if (s.e) ultHit(g, U, s.e); ultSweep(g, U, (x, y, r) => d2(x, y, tx, ty) <= (40 + r) ** 2); } }
+      if (u > 0.75) { ultSweep(g, U, (x, y, r) => d2(x, y, p.x, p.y) < 220 * 220); g.blast = null; } break; }
+    default: { U.r = 1700 * u; const r2 = U.r * U.r; ultSweep(g, U, (x, y, r) => d2(x, y, U.x, U.y) <= (U.r + r) * (U.r + r) && r2 >= 0); if (U.r > BLAST_MAX) g.blast = null; }
   }
-  if (B.r > BLAST_MAX) g.blast = null;
 }
 
 function hurtPlayer(g) {
@@ -358,7 +393,7 @@ function damageEnemy(g, e, dmg, ignoreShield, cause = 0) {
 }
 function damageObstacle(g, o, dmg) {
   o.hp -= dmg; o.flash = 0.06;
-  if (o.hp <= 0 && !o.dead) { o.dead = true; explosion(g, o.x, o.y, o.kind === "well" ? 1.4 : 1, "#9aa4c0"); g.score += 80; ev(g, "sfx", { name: "pop" }); }
+  if (o.hp <= 0 && !o.dead) { o.dead = true; explosion(g, o.x, o.y, o.kind === "well" ? 1.4 : 1, "#9aa4c0"); if (g.mode === "campaign") g.score += 80; ev(g, "sfx", { name: "pop" }); }
 }
 function damagePart(g, pt, dmg) {
   pt.hp -= dmg; pt.flash = 0.08;
@@ -372,7 +407,8 @@ function damageBoss(g, hit, dmg, raw) {
   if (mult < 0.6 && !raw) { b.clink = 0.1; ev(g, "sfx", { name: "clink" }); } else ev(g, "sfx", { name: "bosshit" });
   if (b.hp <= 0) {
     b.hp = 0; b.dying = true; b.dieT = 0; g.ebul = []; g.hz = [];
-    g.score += 3000 + 120 * g.level;
+    if (g.mode === "endless") { const rb = g.rec.bosses[g.rec.bosses.length - 1]; rb[1] = r3(g.t); g.score += EndlessRules.bossBonus(rb[2]); floatText(g, b.x, b.y - 60, "+" + EndlessRules.bossBonus(rb[2]), "#ffd34f", 26); }
+    else g.score += 3000 + 120 * g.level;
     ev(g, "sfx", { name: "bossdie" }); ev(g, "bossDefeated", {});
   }
 }
@@ -430,6 +466,7 @@ function updateGame(g, dt, input) {
       b.ang += clamp(da, -b.homing * dt, b.homing * dt);
       const s = Math.hypot(b.vx, b.vy); b.vx = Math.cos(b.ang) * s; b.vy = Math.sin(b.ang) * s;
     }
+    if (b.blade && !b.turned && b.life0 - b.life >= b.turnAt) { b.turned = true; b.vx = -b.vx * 1.15; b.vy = -b.vy * 0.4; }
     b.x += b.vx * dt; b.y += b.vy * dt; b.life -= dt;
   }
   g.ebul = g.ebul.filter((b) => !b.dead && b.life > 0 && b.x > -40 && b.x < W + 60 && b.y > -60 && b.y < H + 60);
@@ -487,11 +524,29 @@ function updateCampaignFlow(g, dt) {
   if (g.state === "boss" && g.boss && g.boss.dying && g.boss.dieT > 2.6) { g.state = "complete"; g.stateT = 0; g.ebul = []; ev(g, "levelComplete", {}); }
 }
 
+// schedule clock: active time minus time spent fighting Endless bosses (regular spawns pause during a boss)
+function endlessClock(g) { let p = 0; for (const b of g.rec.bosses) p += (b[1] === null ? g.t : b[1]) - b[0]; return g.t - p; }
+function startEndlessBoss(g) {
+  const idx = g.bossIdx++;
+  g.nextBoss += EndlessRules.BOSS_EVERY_POINTS;
+  for (const e of g.enemies) particle(g, e.x, e.y, "#c9bde8", 4, 90, 0.35);   // clear the field (no points) — boss fights are one-on-one
+  g.enemies = []; g.ebul = []; g.hz = [];
+  g.boss = makeEndlessBoss(g, idx);
+  g.rec.bosses.push([r3(g.t), null, idx]);
+  floatText(g, W / 2, 150, `Boss incoming: ${g.boss.def.name}!`, "#ff9ad5", 26);
+  ev(g, "sfx", { name: "warning" }); ev(g, "bossStart", { name: g.boss.def.name });
+}
 function updateEndlessFlow(g, dt) {
   if (g.state !== "endless") return;
   updateTimedPickups(g);
   const cap = ENEMY_CAP[g.quality ?? 2];
-  for (const s of g.sched.take(g.t)) {
+  if (g.boss && g.boss.dying && g.boss.dieT > 2.6) { g.boss = null; ev(g, "bossEnd", {}); }
+  if (!g.versus && (!g.boss || g.boss.dying) && g.score >= g.nextBoss) startEndlessBoss(g);
+  const bossAlive = g.boss && !g.boss.dying;
+  const clock = endlessClock(g);
+  if (!bossAlive) for (const s of g.sched.take(clock + 1.2)) g.pending.push(s);   // look ahead so fast enemies can be announced
+  while (!bossAlive && g.pending.length && g.pending[0].t <= clock) {
+    const s = g.pending.shift();
     g.spawnMap.set(s.id, s);
     if (g.enemies.length >= cap) continue;   // screen full: skip this spawn (never spawns on the player; keeps phones smooth)
     const y = typeof s.y === "number" ? 40 + s.y * (H - 80) : s.y;
@@ -538,7 +593,7 @@ function collide(g) {
     if (s.dead) continue;
     for (const o of g.obs) if (o.hp && !o.dead && d2(s.x, s.y, o.x, o.y) < (o.kind === "well" ? 18 : o.r + 3) ** 2) { s.dead = true; impact(g, s); damageObstacle(g, o, s.dmg); break; }
     if (s.dead) continue;
-    for (const b of g.ebul) if (b.hp > 0 && d2(s.x, s.y, b.x, b.y) < (b.r + 4) * (b.r + 4)) { s.dead = true; b.hp--; if (b.hp <= 0) { b.dead = true; explosion(g, b.x, b.y, 0.5); g.score += 50; } break; }
+    for (const b of g.ebul) if (b.hp > 0 && d2(s.x, s.y, b.x, b.y) < (b.r + 4) * (b.r + 4)) { s.dead = true; b.hp--; if (b.hp <= 0) { b.dead = true; explosion(g, b.x, b.y, 0.5); if (g.mode === "campaign") g.score += 50; } break; }
     if (s.dead || !g.boss || g.boss.entering || g.boss.dying) continue;
     for (const pt of g.boss.parts) if (pt.alive && d2(s.x, s.y, pt.x, pt.y) < (pt.r + 4) * (pt.r + 4)) { s.dead = true; impact(g, s); damagePart(g, pt, s.dmg); break; }
     if (s.dead) continue;
@@ -581,6 +636,7 @@ function updateHazards(g, dt) {
       case "laser": { const dx = Math.cos(h.ang), dy = Math.sin(h.ang), px = p.x - h.x, py = p.y - h.y; if (px * dx + py * dy > 0 && Math.abs(px * dy - py * dx) < h.w / 2 + 3) hurtPlayer(g); break; }
       case "hbeam": if (Math.abs(p.y - h.y) < h.h / 2) hurtPlayer(g); break;
       case "vstrike": if (h.kind !== "debris" && Math.abs(p.x - h.x) < h.w / 2) hurtPlayer(g); break;
+      case "bomb": if (d2(h.x, h.y, p.x, p.y) < h.r * h.r) hurtPlayer(g); break;
       case "zone": { const dd = Math.sqrt(d2(h.x, h.y, p.x, p.y)); if (dd < h.r && dd > 1) { p.pullX += ((h.x - p.x) / dd) * h.force; p.pullY += ((h.y - p.y) / dd) * h.force; } if (dd < 16) hurtPlayer(g); break; }
     }
   }

@@ -5,14 +5,19 @@
   if (typeof module === "object" && module.exports) module.exports = m; else root.EndlessRules = m;
 })(typeof self !== "undefined" ? self : this, function () {
   "use strict";
-  const VERSION = 10;
+  const VERSION = 11;
   const PLAYER_HP = 3, INV_MIN = 0.9, BLAST_CD = 14, FIRE_INT = 0.15, BLAST_DMG = 10;
   const PICKUP_LIFE = 30, ENTRY_MIN = 0.15, MAX_LIFE = 45;
   const TIER_SHOTS = [0, 1, 3, 6], TIER_DPS = TIER_SHOTS.map((n) => n / FIRE_INT), MAX_TIER_BONUS = 1000;
   const POINTS_PER_TIER = 5, SHIELD_EVERY = 60, SHIELD_FIRST = 30, BLAST_EVERY = 30, BLAST_FIRST = 30;
   const BLAST_START = 1, BLAST_MAX = 3, BLAST_GAP = 1.0;   // stored blast charges: start with 1, hold up to 3, pickups add 1
   const MAX_ON_SCREEN = 50, MAX_STAGE = 4, HIT_CAP = { n: 5, f: 10, a: 15 };   // stages stop growing at 20 min
-  const POWERUP_TIME = 10, POWERUP_DMG = 2;   // bullet power-ups (Comet / Nova / Prism) last 10 s and double damage
+  const POWERUP_TIME = 10, POWERUP_DMG = 2;
+  // Endless bosses: one arrives every 30,000 points; regular spawns pause (and the screen is cleared) during the fight
+  const BOSS_EVERY_POINTS = 30000, BOSS_ENTRY = 1.8;
+  function bossHp(idx, t) { return Math.ceil(320 * (1 + 0.6 * idx) * (1 + capStageT(t))); }
+  function bossBonus(idx) { return 3000 + 1000 * idx; }
+  function capStageT(t) { return Math.min(4, Math.floor(t / 300)); }   // bullet power-ups (Comet / Nova / Prism) last 10 s and double damage
   const UPGRADES = [];   // weapon upgrades come only from defeated elites
   const PICK_POINTS = {};   // no point pickups (diamonds removed); max-tier weapon pickups give MAX_TIER_BONUS
   const POWERUPS = ["comet", "nova", "prism"];
@@ -183,7 +188,17 @@
     if (!kills.every((k) => inRange(k[0])) || !picks.every((p) => inRange(p[0])) || !hits.every(inRange) || !blasts.every(inRange)) return fail("An event happened outside the run.");
     if (!sorted(kills, (k) => k[0]) || !sorted(picks, (p) => p[0]) || !sorted(hits, (h) => h) || !sorted(blasts, (b) => b)) return fail("Events are out of order.");
 
-    const sched = createSchedule(seed).take(end + 1);
+    // ---- endless bosses: [start, end|null, index]. Regular schedule time pauses while a boss is alive.
+    const bosses = Array.isArray(ev.bosses) ? ev.bosses : [];
+    if (bosses.length > 200 || !bosses.every((b) => Array.isArray(b) && isNum(b[0]) && (b[1] === null || isNum(b[1])) && Number.isInteger(b[2]))) return fail("A boss record is malformed.");
+    for (let i = 0; i < bosses.length; i++) { const [s0, e0, ix] = bosses[i]; if (ix !== i || !inRange(s0) || (e0 !== null && (e0 < s0 || !inRange(e0))) || (e0 === null && i !== bosses.length - 1) || (i && s0 < bosses[i - 1][1])) return fail("The boss timeline is invalid."); }
+    const bossEnd = (b) => (b[1] === null ? end : b[1]);
+    const pausedBefore = (T) => { let p = 0; for (const b of bosses) { if (b[0] >= T) break; p += Math.min(T, bossEnd(b)) - b[0]; } return p; };
+    const clockEnd = end - pausedBefore(end);
+    const startClock = bosses.map((b) => b[0] - pausedBefore(b[0]));
+    const realSpawn = (st) => { let T = st; for (let i = 0; i < bosses.length; i++) if (startClock[i] < st) T += bossEnd(bosses[i]) - bosses[i][0]; return T; };
+    const inBoss = (t) => bosses.some((b) => t > b[0] + 0.02 && t < bossEnd(b) - 0.02);
+    const sched = createSchedule(seed).take(clockEnd + 1).map((s) => ({ ...s, rt: realSpawn(s.t) }));
     const byId = new Map(sched.map((s) => [s.id, s]));
     const timed = new Map(timedPickupsUntil(end + 1).map((p) => [p.id, p]));
     const seen = new Set(), killT = new Map(), drops = new Map();
@@ -227,20 +242,42 @@
     let dmgUsed = 0, elites = 0;
     for (const [t, id, cause] of kills) {
       const s = byId.get(id);
-      if (t < s.t + ENTRY_MIN - 0.02) return fail("An enemy was defeated before it entered the screen.");
-      if (t > s.t + MAX_LIFE) return fail("An enemy was defeated after it would have left the screen.");
-      const bl = blasts.filter((b) => b >= s.t - 1.5 && b <= t);
+      if (t < s.rt + ENTRY_MIN - 0.02) return fail("An enemy was defeated before it entered the screen.");
+      if (t > s.rt + MAX_LIFE) return fail("An enemy was defeated after it would have left the screen.");
+      if (inBoss(t)) return fail("A regular enemy was defeated during a boss fight.");
+      const bl = blasts.filter((b) => b >= s.rt - 1.5 && b <= t);
       let eff = s.hp + s.shield - bl.length * BLAST_DMG;
       if (cause === 1) {
         if (!blasts.some((b) => t >= b && t <= b + 1.5)) return fail("An enemy was credited to a special blast that didn’t happen.");
       } else {
         eff = Math.max(0, eff);
-        const mr = maxRate(s.t, t), need = Math.max(0, eff - mr * FIRE_INT) / mr, have = t - s.t;
+        const mr = maxRate(s.rt, t), need = Math.max(0, eff - mr * FIRE_INT) / mr, have = t - s.rt;
         if (have + 0.06 < need) return fail("An enemy was defeated faster than the cannon can fire.");
         dmgUsed += eff;
         if (dmgUsed > capUntil(t) * 1.05 + 8) return fail("More damage was dealt than the cannon can produce.");
       }
       score += s.score; if (s.elite) elites++;
+    }
+    { // rebuild the score timeline to check when each boss was due
+      const evs = [];
+      for (const [t, id] of kills) evs.push([t, byId.get(id).score]);
+      for (let m = 1; m * 60 <= end; m++) evs.push([m * 60, 250 * m]);
+      let ups = 0; for (const [t, pid] of picks) { const mm = /^d(\d+)$/.exec(pid); if (mm && drops.get(+mm[1]) === "up") { if (ups >= 2) evs.push([t, MAX_TIER_BONUS]); ups++; } }
+      bosses.forEach((b, i) => { if (b[1] !== null) evs.push([b[1], bossBonus(i)]); });
+      evs.sort((a, b) => a[0] - b[0]);
+      let cum = 0, k = 0; const crossing = [];
+      for (const [t, pts] of evs) { cum += pts; while (cum >= (crossing.length + 1) * BOSS_EVERY_POINTS) crossing.push(t); }
+      for (let i = 0; i < bosses.length; i++) {
+        const due = Math.max(crossing[i] ?? Infinity, i ? bosses[i - 1][1] : 0);
+        if (!(bosses[i][0] >= due - 0.02 && bosses[i][0] <= due + 0.15)) return fail("A boss appeared at the wrong time.");
+        if (bosses[i][1] !== null) {
+          const s0 = bosses[i][0], e0 = bosses[i][1], hpB = bossHp(i, s0), bl = blasts.filter((b) => b >= s0 && b <= e0).length;
+          const need = Math.max(0, hpB - bl * 14) / maxRate(s0, e0);
+          if (e0 - s0 - BOSS_ENTRY + 0.15 < need) return fail("A boss was defeated faster than the cannon can fire.");
+          score += bossBonus(i);
+        }
+      }
+      if (crossing.length > bosses.length && crossing[bosses.length] < end - 0.2 && (bosses.length === 0 || bosses[bosses.length - 1][1] !== null)) return fail("A boss that was due never appeared.");
     }
     let hp = PLAYER_HP, lastHit = -10, dead = false;
     for (const t of hits) {   // no healing exists: exactly three hits end the run
@@ -254,7 +291,7 @@
     return { ok: true, score: Math.round(score), kills: kills.length, elites, survival: end };
   }
 
-  return { VERSION, BLAST_START, BLAST_MAX, BLAST_FIRST, MAX_ON_SCREEN, HIT_CAP, MAX_STAGE, STATS, POOL, POWERUPS, UPGRADES, TIER_SHOTS, FIRE_INT, MAX_TIER_BONUS, PLAYER_HP, BLAST_CD, BLAST_DMG, PICKUP_LIFE, PICK_POINTS,
+  return { VERSION, BOSS_EVERY_POINTS, BOSS_ENTRY, bossHp, bossBonus, BLAST_START, BLAST_MAX, BLAST_FIRST, MAX_ON_SCREEN, HIT_CAP, MAX_STAGE, STATS, POOL, POWERUPS, UPGRADES, TIER_SHOTS, FIRE_INT, MAX_TIER_BONUS, PLAYER_HP, BLAST_CD, BLAST_DMG, PICKUP_LIFE, PICK_POINTS,
     WAVE_EVERY, STEP_SECONDS, SHIELD_EVERY, BLAST_EVERY, rng, hash01, createSchedule, waveSpawns, timedPickupsUntil, newDropState, dropFor, milestonePoints, validate,
     spawnGap, speedAt, threatLevel, minuteMult, stageOf, capStage, countMult, damageMult, powerupMult, blastInterval, BLAST_INTERVALS, POWERUP_TIME, POWERUP_DMG, hitsFor, pointsFor, pow15, pow125 };
 });

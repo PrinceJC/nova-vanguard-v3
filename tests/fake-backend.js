@@ -67,6 +67,12 @@
         db.session = { access_token: "tok-" + u.id, user: { ...u, email_confirmed_at: "now" } }; persist(); listeners.forEach((f) => f("SIGNED_IN", db.session));
         return delay({ data: { session: db.session, user: u }, error: null });
       },
+      async signInAnonymously({ options } = {}) {
+        if (window.__fakeNoAnon) return delay({ error: { message: "Anonymous sign-ins are disabled" } });
+        const u = { id: uid(), email: null, phone: null, is_anonymous: true, confirmed: true };
+        db.users.push(u); db.session = { access_token: "tok-" + u.id, user: { ...u } }; persist(); listeners.forEach((f) => f("SIGNED_IN", db.session));
+        return delay({ data: { session: db.session, user: db.session.user }, error: null });
+      },
       async signUp({ email, phone, password, options }) {
         if (db.users.some((x) => (email && x.email === email) || (phone && x.phone === phone.replace("+", "")))) return delay({ data: { user: { identities: [] }, session: null }, error: null });
         if (!password || password.length < 8) return delay({ error: { message: "Password should be at least 8 characters" } });
@@ -76,10 +82,29 @@
         return delay({ data: { user: { id: u.id, identities: [{}] }, session: u.confirmed ? db.session : null }, error: null });
       },
       async resend({ email, phone }) { pending = { ...(pending || {}), key: email || phone, email, phone, at: Date.now() }; window.__fakeSent = (window.__fakeSent || 0) + 1; return delay({ error: null }); },
-      async updateUser({ password }) { const u = me(); if (!u) return { error: { message: "not signed in" } }; if (password && password.length < 8) return { error: { message: "Password should be at least 8 characters" } }; u.password = password; persist(); return { data: { user: u }, error: null }; },
+      async updateUser({ password, email }) { const u = me(); if (!u) return { error: { message: "not signed in" } }; if (password && password.length < 8) return { error: { message: "Password should be at least 8 characters" } };
+        if (password) u.password = password; if (email) { u.email = email; u.is_anonymous = false; } db.session.user = { ...u, email_confirmed_at: "now" }; persist(); return { data: { user: db.session.user }, error: null }; },
       async setSession({ access_token }) { const u = db.users.find((x) => "tok-" + x.id === access_token); if (!u) return { error: { message: "bad session" } }; db.session = { access_token, user: { ...u, email_confirmed_at: "now" } }; persist(); listeners.forEach((f) => f("SIGNED_IN", db.session)); return { data: { session: db.session, user: db.session.user }, error: null }; },
       async signOut() { db.session = null; persist(); listeners.forEach((f) => f("SIGNED_OUT", null)); return { error: null }; },
     },
+    // Realtime broadcast + presence, emulated across browser tabs with localStorage "storage" events (test-only)
+    channel(name) {
+      const subs = { broadcast: [], presence: [] }, pkey = "__rtp:" + name + ":", bkey = "__rtb:" + name; let me = null, hb = null;
+      const state = () => { const out = {}; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k.startsWith(pkey)) { try { const v = JSON.parse(localStorage.getItem(k)); if (Date.now() - v.ts < 6000) out[k.slice(pkey.length)] = [v.meta]; } catch (e) {} } } return out; };
+      const firePresence = () => subs.presence.forEach((f) => f());
+      const onStorage = (e) => { if (!e.key) return; if (e.key === bkey && e.newValue) { const m = JSON.parse(e.newValue); subs.broadcast.forEach((f) => f({ payload: m.payload })); } else if (e.key.startsWith(pkey)) firePresence(); };
+      window.addEventListener("storage", onStorage);
+      const ch = {
+        on(type, filter, cb) { (type === "broadcast" ? subs.broadcast : subs.presence).push(cb); return ch; },
+        subscribe(cb) { setTimeout(() => cb("SUBSCRIBED"), 30); return ch; },
+        async track(meta) { me = meta.key; const put = () => { localStorage.setItem(pkey + me, JSON.stringify({ meta, ts: Date.now() })); firePresence(); }; put(); hb = setInterval(put, 2000); },
+        presenceState: state,
+        send({ payload }) { localStorage.setItem(bkey, JSON.stringify({ payload, n: Math.random() })); },
+        _close() { clearInterval(hb); window.removeEventListener("storage", onStorage); if (me) localStorage.removeItem(pkey + me); },
+      };
+      return ch;
+    },
+    removeChannel(ch) { ch._close && ch._close(); },
     async rpc(name, args) { try { return await delay({ data: rpcs[name](args || {}), error: null }); } catch (e) { return { data: null, error: e }; } },
     from: table,
   };

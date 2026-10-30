@@ -139,4 +139,37 @@ t("endless five-minute stages stop at 20 min: ×2/×4/×8/×16 enemies, speed +2
   const g = createGame({ mode: "endless", seed: 4, god: true }); let peak = 0; for (let i = 0; i < 60 * 420; i++) { updateGame(g, 1 / 60, {}); peak = Math.max(peak, g.enemies.length); } assert(peak <= 50 && peak >= 40, "on-screen cap 50 (peak " + peak + ")");
   const c = createGame({ mode: "campaign", level: 90, god: true }); c.t = 400; assert(globalThis.__spawn(c, "bulwark4", 270, 600).hp <= 15); assert(globalThis.__spawn(c, "dart", 270, 600).hp <= 10);
 });
+// ---------------- major update: ultimates, Endless bosses, fast warnings, customisation
+t("every hero has a uniquely named ultimate; each ultimate type hits enemies for the blast's damage within ~1.4 s", () => {
+  assert.strictEqual(new Set(AVATARS.map((a) => a.ult.name)).size, AVATARS.length);
+  for (const type of ["nova", "cannonball", "laser", "tsunami", "solar", "blackhole", "lightning", "lances", "meteor", "crystal"]) {
+    const id = AVATARS.find((a) => a.ult.type === type).id, h = createGame({ mode: "campaign", level: 1, avatar: id, god: true }); h.state = "waves"; h.waveIdx = 999;
+    const es = []; for (const [x, y] of [[420, 270], [600, 230], [700, 300]]) { const e = globalThis.__spawn(h, "bulwark4", y, x); e.t = 1; e.hp = 99; es.push(e); }
+    updateGame(h, 1 / 60, { specialPressed: true }); let t = 0; while (t < 1.45) { updateGame(h, 1 / 60, {}); t += 1 / 60; }
+    const hit = es.filter((e) => e.hp <= 89).length; assert(hit >= 1, type + " hit " + hit); for (const e of es) assert(e.hp === 99 || e.hp === 89, type + " deals exactly 10"); assert(!h.blast, type + " finishes in time");
+  }
+});
+t("Endless bosses: one every 30,000 points, field cleared, spawns paused, six different bosses, bombs telegraphed", () => {
+  const g = createGame({ mode: "endless", seed: 12, god: true }); for (let i = 0; i < 60 * 30; i++) updateGame(g, 1 / 60, {});
+  assert(g.enemies.length > 0); g.score = 30000; updateGame(g, 1 / 60, {});
+  assert(g.boss && g.boss.def.kind === "octo_queen" && g.enemies.length === 0 && g.rec.bosses.length === 1, "boss arrives, field cleared");
+  for (let i = 0; i < 60 * 12; i++) { updateGame(g, 1 / 60, {}); assert.strictEqual(g.enemies.length, 0, "no regular enemies during the boss"); }
+  assert(g.hz.some((h) => h.type === "bomb") || g.ebul.length > 0, "boss attacks"); assert.strictEqual(g.boss.max, globalThis.EndlessRules.bossHp(0, g.rec.bosses[0][0]));
+  g.boss.entering = false; damageBoss(g, null, 1e6, true); assert(g.rec.bosses[0][1] !== null && g.nextBoss === 60000);
+  for (let i = 0; i < 60 * 5; i++) updateGame(g, 1 / 60, {}); assert(!g.boss && g.enemies.length > 0, "regular waves resume after the boss");
+  const kinds = new Set(); for (let i = 0; i < 6; i++) kinds.add(makeEndlessBoss(g, i).def.name); assert.strictEqual(kinds.size, 6);
+});
+t("validator: a boss that appears early, or never appears when due, is rejected", () => {
+  const R = globalThis.EndlessRules, ev = { v: R.VERSION, end: 100, kills: [], picks: [], hits: [98, 99, 100], blasts: [], bosses: [[50, null, 0]] };
+  assert.match(R.validate(5, ev, 120).reason, /wrong time/);
+});
+const FAST_TYPES_T = { dart: 1, torpedo_bot: 1, drill_drone: 1, thorn_wasp: 1 };
+t("fast enemies are announced ~1.2 s before they appear (both modes)", () => {
+  const g = createGame({ mode: "endless", seed: 77, god: true }); let seen = 0; for (let i = 0; i < 60 * 200 && !seen; i++) { updateGame(g, 1 / 60, {}); const c = endlessClock(g); if (g.pending.some((s) => s.type === "dart" && s.t - c > 0.9 && s.t - c <= 1.2)) seen++; } assert(seen, "darts visible in the lookahead before spawning");
+  const h = createGame({ mode: "campaign", level: 15, god: true }); let warned = 0; for (let i = 0; i < 60 * 120 && !warned; i++) { updateGame(h, 1 / 60, {}); if (h.queue.some((q) => FAST_TYPES_T[q.type] && q.at - h.t > 0.5 && q.at - h.t <= 1.2)) warned++; } assert(warned, "campaign fast enemies queued with lead time");
+});
+t("customised weapon changes projectiles and muzzle; hitbox never changes", () => {
+  const av = globalThis.effectiveAvatar("lumi", { weapon: "bow", ride: "skate", hat: "crown", back: "wings" }); const g = createGame({ mode: "campaign", level: 1, avatar: "lumi", av, god: true });
+  assert.strictEqual(g.av.cat, "bow"); assert.deepStrictEqual(g.muzzle, muzzleFor("lumi", av)); assert.notDeepStrictEqual(g.muzzle, muzzleFor("lumi"));
+});
 console.log(`\n${pass} weapon/elite/enemy tests passed`);

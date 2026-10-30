@@ -3,7 +3,8 @@ const fs = require("fs"), path = require("path");
 const R = (f) => fs.readFileSync(path.join(__dirname, "..", f), "utf8");
 globalThis.EndlessRules = require("../shared/endless-rules.js");
 Object.assign(globalThis, require("../src/avatars.js"), require("../src/enemies2.js"));
-eval(R("src/levels.js") + R("src/engine.js") + R("src/bosses.js") + ";globalThis.API={createGame,updateGame,getLevel,TOTAL_LEVELS,WORLDS};globalThis.__spawn=spawnEnemy;globalThis.__damage=damageEnemy;globalThis.__hurt=hurtPlayer;");
+globalThis.loadOneSprite = () => Promise.resolve();
+eval(R("src/levels.js") + R("src/engine.js") + R("src/bosses.js") + ";globalThis.API={createGame,updateGame,getLevel,TOTAL_LEVELS,WORLDS};globalThis.__spawn=spawnEnemy;globalThis.damageBoss=damageBoss;globalThis.makeEndlessBoss=makeEndlessBoss;globalThis.endlessClock=endlessClock;globalThis.muzzleFor=muzzleFor;globalThis.__damage=damageEnemy;globalThis.__hurt=hurtPlayer;");
 const { createGame, updateGame } = API;
 
 function bot(g, inp, god) {

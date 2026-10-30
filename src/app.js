@@ -40,7 +40,8 @@ function Page({ title, onBack, backLabel = "Back", children, right }) {
 }
 
 // animated avatar preview (hover + periodic firing + hurt flinch) using the in-game renderer
-function AvatarPreview({ id, w = 298, h: hh = 150 }) {
+function AvatarPreview({ id, av, w = 298, h: hh = 150 }) {
+  useEffect(() => { if (av && av.key) ensureAvatarSprites(av); }, [av && av.key]);
   const ref = useRef(null);
   useEffect(() => {
     let raf, last = performance.now(), t = 0, fire = 0;
@@ -57,7 +58,7 @@ function AvatarPreview({ id, w = 298, h: hh = 150 }) {
       fake.pbul = fake.pbul.filter((b) => b.x < w + 20);
       drawPlayerShots(ctx, fake, 2);
       ctx.save(); ctx.translate(0, Math.sin(now / 160) * 3);
-      const K = PLAYER_ART_K * 0.8; drawAvatarArt(ctx, AVATAR_BY_ID[id], frame, 92 + (50 - SPRITE_ANCHOR[0]) * K, hh / 2 + 10 + (33 - SPRITE_ANCHOR[1]) * K, K, now, { white: frame === "hurt" && t % 4 < 3.45 ? 0.5 : 0 }); ctx.restore();
+      const K = PLAYER_ART_K * 0.8; drawAvatarArt(ctx, av || AVATAR_BY_ID[id], frame, 92 + (50 - SPRITE_ANCHOR[0]) * K, hh / 2 + 10 + (33 - SPRITE_ANCHOR[1]) * K, K, now, { white: frame === "hurt" && t % 4 < 3.45 ? 0.5 : 0 }); ctx.restore();
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
@@ -66,7 +67,7 @@ function AvatarPreview({ id, w = 298, h: hh = 150 }) {
 }
 
 // ============================================================ touch controls
-function TouchControls({ input, game }) {
+function TouchControls({ input, game, sens = 1 }) {
   const base = useRef(null), knob = useRef(null), id = useRef(null), origin = useRef({ x: 0, y: 0 });
   const [cd, setCd] = useState(0);
   useEffect(() => { const t = setInterval(() => { const g = game.current; setCd(g ? g.player.blasts : 0); }, 150); return () => clearInterval(t); }, []);
@@ -79,7 +80,7 @@ function TouchControls({ input, game }) {
   };
   const move = (e) => {
     for (const t of e.changedTouches) if (t.identifier === id.current) {
-      const o = origin.current, max = 50; let dx = (t.clientX - o.x) / o.sc, dy = (t.clientY - o.y) / o.sc; const l = Math.hypot(dx, dy);
+      const o = origin.current, max = 50 / sens; let dx = (t.clientX - o.x) / o.sc, dy = (t.clientY - o.y) / o.sc; const l = Math.hypot(dx, dy);
       if (l > max * 1.35) { // floating stick: the base follows a thumb that slides far, so direction changes stay instant
         const k = (l - max) / l; o.x += (t.clientX - o.x) * k; o.y += (t.clientY - o.y) * k;
         if (base.current) { base.current.style.left = parseFloat(base.current.style.left) + dx * k + "px"; base.current.style.top = parseFloat(base.current.style.top) + dy * k + "px"; }
@@ -212,6 +213,103 @@ function AuthFlow({ mode: startMode, onDone, onBack, startStep }) {
     steps && step !== "claim" && h("ol", { className: "steps", "aria-label": "Progress" }, steps.map((s, i) => h("li", { key: s, className: i === idx ? "on" : i < idx ? "done" : "" }, s))), body));
 }
 
+// ============================================================ coins, shop and customisation
+const coinFmt = (n) => (n || 0).toLocaleString();
+function CoinBadge({ n }) { return h("span", { className: "coins", "aria-label": `${n} coins` }, h("i", { className: "coin" }), coinFmt(n)); }
+function ShopScreen({ save, buy, onBack, onCustomize }) {
+  const [tab, setTab] = useState("heroes"), coins = save.shop.coins, owned = new Set(save.shop.owned);
+  const item = (key, title, sub, price, have, extra) => h("div", { key, className: "shopitem" + (have ? " have" : "") }, extra, h("div", { className: "si-text" }, h("b", null, title), h("span", { className: "note small" }, sub)),
+    have ? h("span", { className: "ok small" }, "Owned") : h(Btn, { small: true, main: coins >= price, disabled: coins < price, onClick: () => buy(key, price) }, h("i", { className: "coin" }), coinFmt(price)));
+  let list = [];
+  if (tab === "heroes") list = AVATARS.filter((a) => a.unlock).map((a) => item("av:" + a.id, a.name, `${a.title} · ${WEAPON_CATS[a.cat]} · free after ${a.unlock} levels`, avatarPrice(a), save.avatars.unlocked.includes(a.id), h(Portrait, { id: a.id, size: 44 })));
+  if (tab === "skins") list = SKINS.map((k) => item("skin:" + k.id, k.name, `Skin for ${AVATAR_BY_ID[k.avatar].name}`, k.price, owned.has("skin:" + k.id), h("img", { className: "portrait", width: 44, height: 44, alt: "", src: avatarPortrait(k.avatar, effectiveAvatar(k.avatar, { skin: k.id })) })));
+  if (tab === "parts") list = Object.entries(PARTS).flatMap(([slot, opts]) => Object.entries(opts).filter(([, p]) => p > 0).map(([v, p]) => item(`part:${slot}:${v}`, PART_LABEL[v] || v[0].toUpperCase() + v.slice(1), { hat: "Headwear", back: "Back", ride: "Ride", weapon: "Weapon (looks + shots)", color: "Outfit colour", boots: "Boots" }[slot], p, owned.has(`part:${slot}:${v}`),
+    slot === "color" || slot === "boots" ? h("i", { className: "swatch", style: { background: (slot === "color" ? SWATCH : BOOT)[v] } }) : h("i", { className: "swatch icon" }, (PART_LABEL[v] || v)[0]))));
+  return h(Page, { title: "Shop", onBack, right: h(CoinBadge, { n: coins }) },
+    h("p", { className: "note" }, "Earn coins from every Campaign level, Endless run and multiplayer match (1 coin per 100 points). Everything here is cosmetic: stats and hitbox never change."),
+    h(Seg, { label: "Shop section", value: tab, options: [["heroes", "Heroes"], ["skins", "Skins"], ["parts", "Parts"]], onChange: setTab }),
+    h("div", { className: "shopgrid" }, list), h("div", { className: "row" }, h(Btn, { onClick: onCustomize }, "Customize my hero")));
+}
+const SLOTS = [["skin", "Skin"], ["hat", "Headwear"], ["back", "Back"], ["ride", "Ride"], ["weapon", "Weapon"], ["color", "Outfit colour"], ["boots", "Boots"]];
+function CustomizeScreen({ id, save, buy, equip, onBack }) {
+  const base = AVATAR_BY_ID[id], cur = save.shop.custom[id] || {}, owned = new Set(save.shop.owned), coins = save.shop.coins;
+  const av = effectiveAvatar(id, cur);
+  const opts = (slot) => slot === "skin" ? [["default", 0], ...SKINS.filter((k) => k.avatar === id).map((k) => [k.id, k.price])] : Object.entries(PARTS[slot]);
+  const isOwned = (slot, v, price) => !price || owned.has(slot === "skin" ? "skin:" + v : `part:${slot}:${v}`);
+  const pick = (slot, v, price) => { const key = slot === "skin" ? "skin:" + v : `part:${slot}:${v}`; if (!isOwned(slot, v, price)) { if (coins < price) return; buy(key, price); } equip(id, slot, v); Sound.play("click"); };
+  return h(Page, { title: "Customize " + base.name, onBack, right: h(CoinBadge, { n: coins }) },
+    h("div", { className: "custlayout" },
+      h("div", { className: "panel avinfo" }, h(AvatarPreview, { id, av }), h("h3", null, base.name), h("p", { className: "note small" }, `Ultimate: ${base.ult.name} (${ULT_LABEL[base.ult.type]})`), h("p", { className: "note small" }, "Looks only — every hero keeps the same hitbox, speed and health.")),
+      h("div", { className: "panel custopts" }, SLOTS.map(([slot, label]) => {
+        const o = opts(slot); if (slot === "skin" && o.length === 1) return h("div", { key: slot, className: "custrow" }, h("b", null, label), h("span", { className: "note small" }, "No skins for this hero yet."));
+        const val = cur[slot] || "default";
+        return h("div", { key: slot, className: "custrow" }, h("b", null, label), h("div", { className: "chips" }, o.map(([v, price]) => {
+          const have = isOwned(slot, v, price), name = slot === "skin" ? (v === "default" ? "Default" : SKIN_BY_ID[v].name) : PART_LABEL[v] || v[0].toUpperCase() + v.slice(1);
+          return h("button", { key: v, className: "chip" + (val === v ? " on" : "") + (have ? "" : " locked"), disabled: !have && coins < price, onClick: () => pick(slot, v, price), "aria-pressed": val === v, title: have ? name : `${name}: ${price} coins` },
+            (slot === "color" || slot === "boots") && v !== "default" ? h("i", { className: "dot", style: { background: (slot === "color" ? SWATCH : BOOT)[v] } }) : null, name, have ? null : h("small", null, h("i", { className: "coin" }), price));
+        })));
+      }))));
+}
+
+// ============================================================ multiplayer
+function MultiplayerScreen({ mp, onCreate, onJoin, onStart, onLeave, onAgain, me }) {
+  const [code, setCode] = useState(""), [copied, setCopied] = useState(false);
+  if (!Net.sb) return h(Page, { title: "Multiplayer", onBack: onLeave }, h("div", { className: "panel" }, h("p", { className: "note" }, "Multiplayer needs an internet connection. Reload the game when you’re online.")));
+  if (mp.phase === "menu") return h(Page, { title: "Multiplayer", onBack: onLeave },
+    h("div", { className: "cols2" },
+      h("div", { className: "panel form" }, h("h3", null, "Survival duel"), h("p", { className: "note" }, "Two players, same waves, same rules. Each of you plays on your own screen while watching your rival live. Whoever survives longest wins."),
+        h(Btn, { main: true, onClick: onCreate }, "Create a room")),
+      h("div", { className: "panel form" }, h("h3", null, "Join a friend"), h("label", { className: "field" }, h("span", null, "Room code"), h("input", { value: code, maxLength: 6, autoCapitalize: "characters", placeholder: "e.g. K7QF2M", onChange: (e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "")) })),
+        mp.error && h("p", { className: "err", role: "alert" }, mp.error), h(Btn, { main: true, disabled: code.length !== 6, onClick: () => onJoin(code) }, "Join room"))));
+  if (mp.phase === "lobby") {
+    const link = location.origin + location.pathname + "?room=" + mp.code, two = mp.players.length >= 2, host = mp.isHost;
+    const copy = async () => { try { if (navigator.share && IS_TOUCH) await navigator.share({ title: "Nova Vanguard duel", text: `Join my Nova Vanguard duel! Code ${mp.code}`, url: link }); else { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1500); } } catch (e) {} };
+    return h(Page, { title: "Room " + mp.code, onBack: onLeave, backLabel: "Leave" },
+      h("div", { className: "cols2" },
+        h("div", { className: "panel form" }, h("h3", null, "Invite"), h("p", { className: "roomcode", "aria-label": "Room code " + mp.code.split("").join(" ") }, mp.code), h("p", { className: "note small" }, "Share the code or the link. Your friend picks a nickname, then joins automatically."),
+          h("div", { className: "row" }, h(Btn, { small: true, onClick: copy }, copied ? "Link copied!" : IS_TOUCH && navigator.share ? "Share link" : "Copy invite link"))),
+        h("div", { className: "panel form" }, h("h3", null, `Players (${Math.min(2, mp.players.length)}/2)`),
+          mp.players.slice(0, 2).map((p) => h("div", { key: p.key, className: "who" }, h(Portrait, { id: p.avatar || "lumi", size: 40 }), h("b", null, p.name || "Player"), p.key === mp.myKey ? h("span", { className: "note small" }, " (you)") : null)),
+          mp.players.length > 2 && h("p", { className: "hint bad" }, "This room is full; extra players watch the lobby."),
+          host ? h(Btn, { main: true, disabled: !two, onClick: onStart }, two ? "Start duel" : "Waiting for a friend…") : h("p", { className: "note" }, two ? "Waiting for the host to start…" : "Waiting for another player…"))));
+  }
+  if (mp.phase === "countdown") return h("div", { className: "center dim" }, h("div", { className: "countdown", "aria-live": "assertive" }, mp.count > 0 ? mp.count : "Go!"));
+  if (mp.phase === "wait") return h("div", { className: "center dim" }, h("div", { className: "panel narrow" }, h("h2", null, "You’re down!"), h("p", null, `You survived ${fmtTime(mp.mine.t)} with ${fmt(mp.mine.score)} points.`), h("p", { className: "note" }, `${mp.oppName || "Your rival"} is still flying… (${fmtTime((mp.opp && mp.opp.t) || 0)})`), h(Btn, { onClick: onLeave }, "Leave match")));
+  if (mp.phase === "result") { const r = mp.result; return h("div", { className: "center dim" }, h("div", { className: "panel narrow result" },
+    h("h2", null, r.win ? "You win!" : r.tie ? "It’s a tie!" : "You lose"), h("p", { className: "note" }, "Longest survival wins (ties go to the higher score)."),
+    h("table", { className: "tally" }, h("tbody", null, h("tr", null, h("td", null, me + " (you)"), h("td", null, `${fmtTime(r.mine.t)} · ${fmt(r.mine.score)}`)), h("tr", null, h("td", null, r.oppName + (r.left ? " (left)" : "")), h("td", null, `${fmtTime(r.opp.t)} · ${fmt(r.opp.score)}`)), h("tr", { className: "tot" }, h("td", null, "Coins earned"), h("td", null, "+" + r.coins)))),
+    h("div", { className: "row" }, mp.isHost && !r.left && h(Btn, { main: true, onClick: onAgain }, "Rematch"), h(Btn, { onClick: onLeave }, "Leave")))); }
+  return null;
+}
+
+// ============================================================ nickname play
+function NicknameScreen({ onDone, onOffline, onSignIn, onCreate, onBack }) {
+  const [name, setName] = useState(lsGet(PENDING_NAME) || lsGet("lumi-offline-nick") || "");
+  const [avail, setAvail] = useState(null), [err, setErr] = useState(""), [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!USERNAME_RE.test(name) || !Net.sb) { setAvail(null); return; }
+    setAvail("checking"); const t = setTimeout(() => Net.usernameAvailable(name).then((ok) => setAvail(ok ? "yes" : "no")).catch(() => setAvail("error")), 350);
+    return () => clearTimeout(t);
+  }, [name]);
+  const ok = USERNAME_RE.test(name) && (avail === "yes" || avail === "error" || !Net.sb);
+  const start = async () => {
+    if (!ok) return; setErr(""); setBusy(true);
+    if (!Net.sb) { setBusy(false); return onOffline(name); }
+    try { await Net.guestStart(name); lsDel(PENDING_NAME); onDone(); }
+    catch (e) { const m = friendlyError(e); if (m === "OFFLINE_ONLY" || /reach the server/.test(m)) onOffline(name); else setErr(m); }
+    finally { setBusy(false); }
+  };
+  const hint = !name ? "3–20 characters: letters, numbers and underscores." : !USERNAME_RE.test(name) ? "Use 3–20 letters, numbers or underscores (no spaces)." : avail === "checking" ? "Checking…" : avail === "yes" ? "Available" : avail === "no" ? "That nickname is taken. Try another." : "";
+  return h("div", { className: "authpage" }, h("form", { className: "panel auth", onSubmit: (e) => { e.preventDefault(); start(); } },
+    h("h2", null, "Choose your nickname"),
+    h("p", { className: "note" }, "That’s all you need. Your nickname appears on the leaderboards, and your progress is saved on this device."),
+    h("label", { className: "field" }, h("span", null, "Nickname"), h("input", { autoFocus: !IS_TOUCH, maxLength: 20, autoComplete: "nickname", value: name, onChange: (e) => setName(e.target.value.replace(/\s/g, "")), "aria-describedby": "nickhint" })),
+    h("p", { id: "nickhint", className: "hint " + (avail === "yes" && USERNAME_RE.test(name) ? "ok" : avail === "no" || (name && !USERNAME_RE.test(name)) ? "bad" : ""), "aria-live": "polite" }, hint),
+    err && h("p", { className: "err", role: "alert" }, err),
+    h("div", { className: "row" }, h(Btn, { main: true, type: "submit", disabled: !ok || busy }, busy ? "Starting…" : "Start playing"), h(Btn, { onClick: onBack }, "Back")),
+    h("p", { className: "note small" }, "Already have an account? ", h("button", { type: "button", className: "linkbtn inline", onClick: onSignIn }, "Sign in"), Net.sb ? " · " : "", Net.sb && h("button", { type: "button", className: "linkbtn inline", onClick: onCreate }, "Create a full account"))));
+}
+
 // ============================================================ App
 function App() {
   const [screen, setScreen] = useState("loading");
@@ -230,6 +328,8 @@ function App() {
   const [portrait, setPortrait] = useState(isPortrait());
   const perf = useRef({ cap: 2, dprCap: 2, frames: 0, acc: 0 }); const [perfTick, setPerfTick] = useState(0);
   const endlessBest = useRef(null);
+  const [mp, setMp] = useState({ phase: "menu", players: [] }); const mpRef = useRef({}); const oppRef = useRef(null); const pendingRoom = useRef(new URLSearchParams(location.search).get("room"));
+  const currentAv = () => { const s = saveRef.current, id = s.avatars.selected; return effectiveAvatar(id, s.shop.custom[id]); };
   const bestKey = (uid) => "lumi-endless-best:" + uid;
   const refreshBest = useCallback(() => {
     if (!Net.user) return Promise.resolve(null);
@@ -241,7 +341,7 @@ function App() {
   }, []);
   const canvas = useRef(null), game = useRef(null), input = useRef({}), screenRef = useRef(screen), saveRef = useRef(save), attract = useRef(null), runRef = useRef(null), dirty = useRef(false), saveTimer = useRef(null);
   screenRef.current = screen; saveRef.current = save;
-  if (typeof window !== "undefined") window.__lumi = { game: () => game.current, screen: () => screenRef.current, save: () => saveRef.current };
+  if (typeof window !== "undefined") window.__lumi = { game: () => game.current, screen: () => screenRef.current, save: () => saveRef.current, mp: () => mpRefState.current, opp: () => oppRef.current };
   const set = save.settings;
   useEffect(() => { Sound.apply(set); }, [set]);
 
@@ -252,10 +352,11 @@ function App() {
     try { await Net.writeSave(saveRef.current); dirty.current = false; setSaveStatus("Saved to your account"); return true; }
     catch (e) { dirty.current = true; setSaveStatus("Saved on this device — will sync when the connection returns"); return false; }
   }, []);
+  const offline = useRef(false);   // playing with a local save only (no server or guest sign-in unavailable)
   const commit = useCallback((fn, immediate) => {
     const n = sanitizeSave(JSON.parse(JSON.stringify(saveRef.current))); fn(n); refreshUnlocks(n);
     saveRef.current = n; setSave(n);
-    if (Net.user) lsSet(cacheKey(Net.user.id), JSON.stringify(n));
+    if (Net.user) lsSet(cacheKey(Net.user.id), JSON.stringify(n)); else if (offline.current) lsSet(cacheKey("offline"), JSON.stringify(n));
     dirty.current = true; clearTimeout(saveTimer.current);
     if (immediate) return pushCloud();
     saveTimer.current = setTimeout(pushCloud, 1500);
@@ -291,14 +392,24 @@ function App() {
     } catch (e) { setCfgError(friendlyError(e)); setScreen("neterror"); }
   }, []);
 
+  const startOffline = useCallback((nick) => {
+    offline.current = true; lsSet("lumi-offline-nick", nick);
+    let s = null; try { s = JSON.parse(lsGet(cacheKey("offline"))); } catch (e) {}
+    let merged = sanitizeSave(s);
+    const v1raw = lsGet(V1_KEY); if (v1raw && !lsGet(migratedKey("offline"))) { try { const conv = convertV1(JSON.parse(v1raw)); if (conv) { merged = mergeSaves(merged, conv, !s); lsSet(migratedKey("offline"), "1"); } } catch (e) {} }
+    refreshUnlocks(merged); saveRef.current = merged; setSave(merged); lsSet(cacheKey("offline"), JSON.stringify(merged));
+    setProfile({ id: "offline", username: nick, avatar: merged.avatars.selected, created_at: new Date().toISOString(), offline: true });
+    setSaveStatus("Playing offline: progress is saved on this device, and Endless runs aren’t ranked.");
+    setScreen("menu");
+  }, []);
   // ---------- boot
   useEffect(() => {
     const fonts = document.fonts && document.fonts.load ? Promise.race([Promise.all([document.fonts.load("800 40px 'Exo 2'"), document.fonts.load("600 16px 'Nunito'")]), new Promise((r) => setTimeout(r, 2500))]) : Promise.resolve();
-    registerAvatarSprites(); registerEnemySprites();
+    registerAvatarSprites(); registerEnemySprites(); registerEndlessBossSprites();
     Promise.all([loadSprites(), fonts, Net.init()]).then(([, , ok]) => {
       for (let i = 1; i <= 10; i++) buildBG(i);
       attract.current = { scroll: 0 };
-      if (!ok) { setCfgError(Net.cfgError); setScreen("setup"); return; }
+      if (!ok) { setCfgError(Net.cfgError); setScreen(lsGet("lumi-offline-nick") ? "landing" : "setup"); return; }
       Net.onChange = (evt) => { if (evt === "SIGNED_OUT") { game.current = null; Sound.stopMusic(); setProfile(null); setScreen("landing"); } };
       setScreen("landing");
     });
@@ -330,7 +441,8 @@ function App() {
   // advancing, replaying, retrying after game over and starting a new run all reset to one bullet per attack.
   const startLevel = useCallback((L) => {
     requestLandscape();
-    game.current = createGame({ mode: "campaign", level: L, tier: 1, avatar: saveRef.current.avatars.selected, quality: saveRef.current.settings.quality });
+    const av = currentAv(); ensureAvatarSprites(av);
+    game.current = createGame({ mode: "campaign", level: L, tier: 1, avatar: saveRef.current.avatars.selected, av, quality: saveRef.current.settings.quality });
     input.current = {}; setScreen("playing");
     Sound.init(); Sound.duck(false); Sound.music(game.current.lv.music, false);
   }, []);
@@ -350,6 +462,62 @@ function App() {
     commit((s) => { if (s.campaign.run) s.campaign.run.tier = 1; });
     startLevel(r.level);
   };
+  const buy = (key, price) => { let ok = false; commit((s) => { if (s.shop.coins >= price && !s.shop.owned.includes(key)) { s.shop.coins -= price; s.shop.owned.push(key); ok = true; } }, true); if (ok) Sound.play("coin"); return ok; };
+  const equip = (id, slot, v) => commit((s) => { const c = { ...(s.shop.custom[id] || {}) }; if (v === "default") delete c[slot]; else c[slot] = v; s.shop.custom[id] = c; });
+  const awardCoins = (points) => { const n = Math.max(0, Math.floor(points / 100)); if (n) commit((s) => { s.shop.coins += n; }, true); return n; };
+  // ---------- multiplayer
+  const mpEnter = (code, host) => {
+    if (!Net.sb) { setMp({ phase: "menu", players: [], error: "Multiplayer needs an internet connection." }); setScreen("mp"); return; }
+    const me = { id: Net.user ? Net.user.id : "guest", name: profile ? profile.username : "Player", avatar: saveRef.current.avatars.selected };
+    mpRef.current = { code, active: false };
+    const myKey = Net.mpJoin(code, me, {
+      presence: (list) => { list.sort((x, y) => (x.joined || 0) - (y.joined || 0)); setMp((m) => ({ ...m, players: list, isHost: list.length ? list[0].key === mpRef.current.myKey : host }));
+        if (mpRef.current.active && mpRef.current.oppKey && !list.some((p) => p.key === mpRef.current.oppKey)) { oppRef.current = { ...(oppRef.current || {}), dead: true, left: true }; mpCheckEnd(); } },
+      msg: (m) => onMpMsg(m), error: () => setMp((m) => ({ ...m, error: "Couldn’t connect to the room. Check your connection and try again." })) });
+    mpRef.current.myKey = myKey;
+    setMp({ phase: "lobby", code, players: [], isHost: host, myKey }); setScreen("mp");
+  };
+  const mpCreate = () => { const A = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; let c = ""; for (let i = 0; i < 6; i++) c += A[Math.floor(Math.random() * A.length)]; mpEnter(c, true); };
+  const mpLeave = () => { clearInterval(mpRef.current.timer); mpRef.current = {}; oppRef.current = null; Net.mpLeave(); setMp({ phase: "menu", players: [] }); game.current = null; Sound.stopMusic(); setScreen("menu"); };
+  const mpBegin = (seed) => {
+    oppRef.current = null; setMp((m) => ({ ...m, phase: "countdown", count: 3, result: null }));
+    const opp = (mpRefPlayers() || []).find((p) => p.key !== mpRef.current.myKey); mpRef.current.oppKey = opp ? opp.key : null; mpRef.current.oppName = opp ? opp.name : "Rival";
+    let n = 3; const tick = setInterval(() => { n--; setMp((m) => ({ ...m, count: n })); if (n < 0) { clearInterval(tick); mpPlay(seed); } }, 800); Sound.init(); requestLandscape();
+  };
+  const mpRefPlayers = () => mpRef.current.players;
+  useEffect(() => { mpRef.current.players = mp.players; }, [mp.players]);
+  const mpRefState = useRef(mp); mpRefState.current = mp;
+  const mpPlay = (seed) => {
+    const av = currentAv(); ensureAvatarSprites(av);
+    game.current = createGame({ mode: "endless", seed, versus: true, avatar: saveRef.current.avatars.selected, av, quality: saveRef.current.settings.quality });
+    game.current.ranked = false; mpRef.current.active = true; mpRef.current.mine = null;
+    input.current = {}; setScreen("playing"); setMp((m) => ({ ...m, phase: "playing" })); Sound.duck(false); Sound.music(WORLDS[6].music, true);
+    clearInterval(mpRef.current.timer);
+    mpRef.current.timer = setInterval(() => { const g = game.current; if (!g || !g.versus) return; const p = g.player; Net.mpSend({ type: "state", x: Math.round(p.x), y: Math.round(p.y), hp: p.hp, score: g.score, t: Math.round(g.t * 10) / 10, dead: !!p.dead, avatar: saveRef.current.avatars.selected, name: profile ? profile.username : "Player" }); }, 120);
+  };
+  const onMpMsg = (m) => {
+    if (m.type === "start") mpBegin(m.seed);
+    else if (m.type === "state") { if (!mpRef.current.oppKey) mpRef.current.oppKey = m.from; if (m.from === mpRef.current.oppKey && !(oppRef.current && oppRef.current.dead)) oppRef.current = { ...(oppRef.current || {}), ...m, dead: false }; }
+    else if (m.type === "dead") { if (!mpRef.current.oppKey) mpRef.current.oppKey = m.from; oppRef.current = { ...(oppRef.current || {}), dead: true, t: m.t, score: m.score, name: m.name }; mpCheckEnd(); }
+    else if (m.type === "lobby") { clearInterval(mpRef.current.timer); mpRef.current.active = false; oppRef.current = null; game.current = null; setMp((x) => ({ ...x, phase: "lobby", result: null })); setScreen("mp"); }
+  };
+  const mpCheckEnd = () => {
+    const mine = mpRef.current.mine, opp = oppRef.current;
+    if (!mine || !opp || !opp.dead || mpRef.current.ended) return;
+    mpRef.current.ended = true; clearInterval(mpRef.current.timer); mpRef.current.active = false;
+    const ot = opp.t || 0, win = mine.t > ot + 0.05 || (Math.abs(mine.t - ot) <= 0.05 && mine.score > (opp.score || 0)), tie = Math.abs(mine.t - ot) <= 0.05 && mine.score === (opp.score || 0);
+    const coins = awardCoins(mine.score) + (win ? 5 : 0); if (win) commit((s) => { s.shop.coins += 5; }, true);
+    setMp((m) => ({ ...m, phase: "result", result: { win, tie, mine, opp: { t: ot, score: opp.score || 0 }, oppName: opp.name || mpRef.current.oppName || "Rival", left: !!opp.left, coins } })); setScreen("mp"); Sound.stopMusic();
+  };
+  const onVersusOver = () => {
+    const g = game.current; const mine = { t: g.rec.end || g.t, score: g.score }; mpRef.current.mine = mine; mpRef.current.ended = false;
+    clearInterval(mpRef.current.timer);   // stop live updates: the "dead" message carries the final survival time
+    Net.mpSend({ type: "dead", t: mine.t, score: mine.score, name: profile ? profile.username : "Player" });
+    setTimeout(() => { if (mpRef.current.ended) return; setMp((m) => ({ ...m, phase: "wait", mine, opp: oppRef.current, oppName: mpRef.current.oppName })); setScreen("mp"); mpCheckEnd(); }, 1200);
+  };
+  useEffect(() => { if (screen !== "mp" || mp.phase !== "wait") return; const t = setInterval(() => setMp((m) => ({ ...m, opp: oppRef.current })), 300); return () => clearInterval(t); }, [screen, mp.phase]);
+  useEffect(() => { if (screen === "menu" && pendingRoom.current) { const c = pendingRoom.current.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6); pendingRoom.current = null; try { history.replaceState(null, "", location.pathname); } catch (e) {} if (c.length === 6) mpEnter(c, false); } }, [screen]);
+  const askSignOut = () => { if (offline.current) { offline.current = false; lsDel("lumi-offline-nick"); setProfile(null); setScreen("nickname"); } else if (Net.isGuest()) setConfirm("signout"); else Net.signOut(); };
   const toMenu = () => { game.current = null; runRef.current = null; Sound.stopMusic(); Sound.duck(false); setScreen("menu"); };
   const pause = useCallback(() => { if (screenRef.current === "playing") { setScreen("paused"); Sound.duck(true); } }, []);
   const resume = () => { input.current = {}; setScreen("playing"); Sound.duck(false); };
@@ -359,7 +527,7 @@ function App() {
     const clear = 1000 + 60 * L, health = g.player.hp * 300, flawless = g.hitsTaken === 0 ? 2000 : 0;
     const levelTotal = g.score + clear + health + flawless, runTotal = run.score + levelTotal;
     const before = completedCount(saveRef.current);
-    const res = { L, title: g.L.title, boss: g.boss.def.name, score: g.score, clear, health, flawless, levelTotal, runTotal, tier: g.player.tier, final: L === TOTAL_LEVELS, newBest: runTotal > saveRef.current.campaign.bestTotal };
+    const res = { L, title: g.L.title, boss: g.boss.def.name, score: g.score, clear, health, flawless, levelTotal, runTotal, tier: g.player.tier, final: L === TOTAL_LEVELS, newBest: runTotal > saveRef.current.campaign.bestTotal, coins: awardCoins(levelTotal) };
     commit((s) => {
       const c = s.campaign; c.best[L - 1] = Math.max(c.best[L - 1], levelTotal); c.completed[L - 1] = true;
       if (L < TOTAL_LEVELS) { c.unlocked = Math.max(c.unlocked, L + 1); c.run = { level: L + 1, tier: 1, score: runTotal }; }
@@ -378,7 +546,8 @@ function App() {
     let seed, ranked = true, why = "";
     try { const r = await Net.startRun(); runRef.current = r.runId; seed = r.seed; }
     catch (e) { ranked = false; runRef.current = null; seed = (Math.random() * 2 ** 31) >>> 0; why = friendlyError(e); }
-    game.current = createGame({ mode: "endless", seed, avatar: saveRef.current.avatars.selected, quality: saveRef.current.settings.quality });
+    const av = currentAv(); ensureAvatarSprites(av);
+    game.current = createGame({ mode: "endless", seed, avatar: saveRef.current.avatars.selected, av, quality: saveRef.current.settings.quality });
     game.current.ranked = ranked; game.current.unrankedWhy = why;
     if (!endlessBest.current && Net.user) { try { endlessBest.current = JSON.parse(lsGet(bestKey(Net.user.id))) || null; } catch (e) {} }
     game.current.best = endlessBest.current ? { ...endlessBest.current } : null;
@@ -387,7 +556,7 @@ function App() {
   const onEndlessOver = useCallback(async () => {
     const g = game.current;
     const local = EndlessRules.validate(g.seed, g.rec, g.rec.end + 5);
-    const base = { score: g.score, survival: g.rec.end, kills: g.rec.kills.length, ranked: g.ranked };
+    const base = { score: g.score, survival: g.rec.end, kills: g.rec.kills.length, ranked: g.ranked, coins: awardCoins(g.score), bosses: g.rec.bosses.filter((b) => b[1] !== null).length };
     setEres({ ...base, status: g.ranked ? "submitting" : "unranked", reason: g.unrankedWhy });
     setTimeout(() => { Sound.stopMusic(); setScreen("endless-result"); }, 1500);
     if (!g.ranked) return;
@@ -447,15 +616,16 @@ function App() {
           updateGame(g, scr === "playing" ? dt : dt * 0.6, input.current);
           for (const e of g.events) {
             if (e.type === "sfx") Sound.play(e.name);
-            else if (e.type === "bossStart") Sound.music(g.lv.music, true);
+            else if (e.type === "bossStart") Sound.music(g.lv ? g.lv.music : WORLDS[9].music, true);
+            else if (e.type === "bossEnd") Sound.music(WORLDS[9].music);
             else if (e.type === "warning") Sound.stopMusic();
             else if (e.type === "levelComplete" && scr === "playing") onComplete();
             else if (e.type === "gameOver" && scr === "playing") { Sound.stopMusic(); setScreen("gameover"); }
-            else if (e.type === "endlessOver") onEndlessOver();
+            else if (e.type === "endlessOver") (g.versus ? onVersusOver() : onEndlessOver());
           }
           g.events.length = 0;
         }
-        drawGame(ctx, g, { ...S, touch: IS_TOUCH, perfCap: P.cap }, now);
+        drawGame(ctx, g, { ...S, touch: IS_TOUCH, perfCap: P.cap, opponent: g.versus ? oppRef.current : null }, now);
         if (g.mode === "endless" && !g.ranked && scr === "playing") txt(ctx, "Practice run (not ranked)", W / 2, H - 14, 15, "#c9bde8", "center");
       } else if (attract.current) {
         const a = attract.current; a.scroll += dt * 50; const bg = buildBG(((Math.floor(now / 12000)) % 10) + 1);
@@ -475,7 +645,7 @@ function App() {
     h("h2", null, screen === "setup" ? "Server setup needed" : "Can’t reach the server"),
     h("p", { className: "note" }, cfgError),
     screen === "setup" && h("p", { className: "note" }, "Add the Supabase environment variables in your Vercel project (Settings → Environment Variables), then redeploy. The README lists every step."),
-    h(Btn, { main: true, onClick: () => location.reload() }, "Try again")));
+    h("div", { className: "row" }, h(Btn, { main: true, onClick: () => location.reload() }, "Try again"), h(Btn, { onClick: () => setScreen("nickname") }, "Play offline"))));
 
   if (screen === "welcome") overlay = h("div", { className: "title" },
     h("div", { className: "hero" }, h("img", { src: avatarFull("lumi"), alt: "Lumi, a chibi gunner with a silver-lavender ponytail", className: "heroimg" }),
@@ -487,19 +657,26 @@ function App() {
       h("p", { className: "note small" }, "An account keeps your progress in the cloud and puts your scores on the leaderboards.")));
 
   useEffect(() => { document.body.classList.toggle("doc", screen === "landing"); document.body.classList.toggle("game", screen !== "landing"); if (screen === "landing") window.scrollTo(0, 0); }, [screen]);
-  if (screen === "landing") return h(Landing, { signedIn: !!Net.user, onPlay: () => { if (Net.user) loadAccount(); else { setAuthMode("signin"); setScreen("auth"); } }, onCreate: () => { setAuthMode("signup"); setScreen("auth"); } });
+  const resumeOffline = () => { const nick = lsGet("lumi-offline-nick"); if (nick) startOffline(nick); else setScreen("nickname"); };
+  if (screen === "landing") return h(Landing, { signedIn: !!Net.user || !!lsGet("lumi-offline-nick"), onPlay: () => { if (Net.user) loadAccount(); else if (!Net.sb) resumeOffline(); else setScreen("nickname"); }, onCreate: () => { if (Net.sb) { setAuthMode("signin"); setScreen("auth"); } else setScreen("nickname"); } });
+  if (screen === "nickname") overlay = h(NicknameScreen, { onDone: loadAccount, onOffline: startOffline, onBack: () => setScreen("landing"), onSignIn: () => { setAuthMode("signin"); setScreen("auth"); }, onCreate: () => { setAuthMode("signup"); setScreen("auth"); } });
   if (screen === "auth") overlay = h(AuthFlow, { key: authMode, mode: authMode === "claim" ? "signup" : authMode, startStep: authMode === "claim" ? "claim" : undefined, onBack: () => setScreen("landing"), onDone: loadAccount });
 
   if (screen === "menu") overlay = h("div", { className: "title" },
     h("div", { className: "hero" }, h("img", { src: avatarFull(save.avatars.selected), alt: AVATAR_BY_ID[save.avatars.selected].name, className: "heroimg" }),
       h("h1", null, "Nova Vanguard"), h("p", { className: "tag" }, `Welcome back, ${profile ? profile.username : ""}. ${cc}/100 levels cleared.`),
+      h("p", { className: "tag" }, h(CoinBadge, { n: save.shop.coins })),
       saveStatus && h("p", { className: "note small", "aria-live": "polite" }, saveStatus)),
     h("nav", { className: "menu", "aria-label": "Main menu" },
       h(Btn, { main: true, auto: true, onClick: () => { setWorld(Math.ceil((camp.run ? camp.run.level : camp.unlocked) / 10)); setScreen("campaign"); } }, "Campaign"),
       h(Btn, { onClick: startEndless }, "Endless mode"),
-      h(Btn, { onClick: () => setScreen("avatars") }, "Avatars"),
+      h(Btn, { onClick: () => { setMp({ phase: "menu", players: [] }); setScreen("mp"); } }, "Multiplayer"),
+      h("div", { className: "row tight" }, h(Btn, { onClick: () => setScreen("avatars") }, "Avatars"), h(Btn, { onClick: () => setScreen("shop") }, "Shop")),
       h(Btn, { onClick: () => setScreen("rankings") }, "Daily & weekly rankings"),
-      h("div", { className: "row tight" }, h(Btn, { small: true, onClick: () => { game.current = null; setScreen("landing"); } }, "Home"), h(Btn, { small: true, onClick: () => setScreen("profile") }, "Profile"), h(Btn, { small: true, onClick: () => { setSettingsFrom("menu"); setScreen("settings"); } }, "Settings"), h(Btn, { small: true, onClick: () => Net.signOut() }, "Sign out"))),
+      h("div", { className: "row tight" }, h(Btn, { small: true, onClick: () => { game.current = null; setScreen("landing"); } }, "Home"), h(Btn, { small: true, onClick: () => setScreen("profile") }, "Profile"), h(Btn, { small: true, onClick: () => { setSettingsFrom("menu"); setScreen("settings"); } }, "Settings"), h(Btn, { small: true, onClick: () => askSignOut() }, offline.current ? "Change nickname" : "Sign out"))),
+    confirm === "signout" && h("div", { className: "center dim overlaybox" }, h("div", { className: "panel narrow" }, h("h3", null, "Sign out of a guest profile?"),
+      h("p", { className: "note" }, "Guest progress is tied to this device’s sign-in. If you sign out without saving it with an email and password (in Profile), you won’t be able to get it back."),
+      h("div", { className: "row" }, h(Btn, { onClick: () => setConfirm(null) }, "Keep playing"), h(Btn, { onClick: () => { setConfirm(null); setScreen("profile"); } }, "Save my progress"), h(Btn, { onClick: () => { setConfirm(null); Net.signOut(); } }, "Sign out anyway")))),
     userChip);
 
   if (screen === "campaign") {
@@ -530,15 +707,21 @@ function App() {
       h("div", { className: "avlayout" },
         h("div", { className: "avgrid" }, AVATARS.map((a) => { const ok = save.avatars.unlocked.includes(a.id); return h("button", { key: a.id, className: "avtile" + (a.id === focus ? " focus" : "") + (a.id === sel ? " sel" : ""), onClick: () => setFocus(a.id), "aria-label": `${a.name}${ok ? "" : ", locked"}` }, h(Portrait, { id: a.id, size: 42, locked: !ok }), h("span", null, a.name), h("small", { className: "cat" }, ok ? WEAPON_CATS[a.cat] : `Clear ${a.unlock}`)); })),
         h("div", { className: "panel avinfo" },
-          h(AvatarPreview, { id: fa.id }),
+          h(AvatarPreview, { id: fa.id, av: effectiveAvatar(fa.id, save.shop.custom[fa.id]) }),
           h("h3", null, fa.name), h("p", { className: "note" }, `${fa.title} · ${WEAPON_CATS[fa.cat]}: ${fa.weaponName}`),
+          h("p", { className: "note small" }, `Ultimate: ${fa.ult.name} (${ULT_LABEL[fa.ult.type]})`),
           h("p", { className: "note small" }, "All avatars share the same hitbox, speed, damage and health."),
-          unlocked ? (fa.id === sel ? h("p", { className: "ok" }, "Selected") : h(Btn, { main: true, onClick: () => { commit((s) => { s.avatars.selected = fa.id; }); Net.setAvatar(fa.id).catch(() => {}); } }, "Use " + fa.name))
-            : h("p", { className: "hint bad" }, `Unlocks after clearing ${fa.unlock} campaign levels (${cc}/${fa.unlock}).`))));
+          unlocked ? h("div", { className: "row" }, fa.id === sel ? h("p", { className: "ok" }, "Selected") : h(Btn, { main: true, onClick: () => { commit((s) => { s.avatars.selected = fa.id; }); if (Net.user) Net.setAvatar(fa.id).catch(() => {}); } }, "Use " + fa.name), h(Btn, { onClick: () => { setFocusAv(fa.id); setScreen("customize"); } }, "Customize"))
+            : h(React.Fragment, null, h("p", { className: "hint bad" }, `Unlocks after clearing ${fa.unlock} campaign levels (${cc}/${fa.unlock}), or buy it now.`),
+              h(Btn, { main: save.shop.coins >= avatarPrice(fa), disabled: save.shop.coins < avatarPrice(fa), onClick: () => { if (buy("av:" + fa.id, avatarPrice(fa))) commit((s) => { s.avatars.selected = fa.id; }); } }, h("i", { className: "coin" }), `Buy for ${coinFmt(avatarPrice(fa))}`), h("p", { className: "note small" }, h(CoinBadge, { n: save.shop.coins }))))));
   }
 
   if (screen === "rankings") overlay = h(Rankings, { onBack: () => setScreen("menu") });
-  if (screen === "profile") overlay = h(Profile, { profile, save, onBack: () => setScreen("menu"), onRenamed: (p) => setProfile(p), onAvatars: () => setScreen("avatars") });
+  if (screen === "shop") overlay = h(ShopScreen, { save, buy, onBack: () => setScreen("menu"), onCustomize: () => { setFocusAv(save.avatars.selected); setScreen("customize"); } });
+  if (screen === "customize") overlay = h(CustomizeScreen, { id: focusAv && save.avatars.unlocked.includes(focusAv) ? focusAv : save.avatars.selected, save, buy, equip, onBack: () => setScreen("avatars") });
+  if (screen === "mp") overlay = h(MultiplayerScreen, { mp, me: profile ? profile.username : "You", onCreate: mpCreate, onJoin: (c) => mpEnter(c, false), onStart: () => { const seed = (Math.random() * 2 ** 31) >>> 0; Net.mpSend({ type: "start", seed }); mpBegin(seed); }, onLeave: mpLeave, onAgain: () => { Net.mpSend({ type: "lobby" }); onMpMsg({ type: "lobby" }); } });
+  if (screen === "profile") overlay = h(Profile, { profile, save, onBack: () => setScreen("menu"), onRenamed: (p) => setProfile(p), onAvatars: () => setScreen("avatars"), onSignOut: () => { if (Net.user && Net.isGuest() && !offline.current) { setScreen("menu"); setConfirm("signout"); } else askSignOut(); } });
+  if (screen === "rankings" && offline.current) overlay = h(Page, { title: "Rankings", onBack: () => setScreen("menu") }, h("div", { className: "panel" }, h("p", { className: "note" }, "Rankings need an internet connection. Reload the game when you’re online to see and join the daily and weekly boards.")));
 
   if (screen === "settings") overlay = h(Page, { title: "Settings", onBack: () => setScreen(settingsFrom), backLabel: "Done" },
     h("div", { className: "cols2" },
@@ -552,11 +735,12 @@ function App() {
         h("h3", null, "Visuals and play"),
         h("div", { className: "slider" }, h("span", null, "Graphics"), h(Seg, { label: "Graphics quality", value: set.quality, options: [[0, "Low"], [1, "Medium"], [2, "High"]], onChange: (v) => commit((s) => (s.settings.quality = v)) })),
         h(Slider, { label: "Screen shake", value: set.shake, onChange: (v) => commit((s) => (s.settings.shake = v)) }),
+        h("div", { className: "slider" }, h("span", null, "Joystick sensitivity"), h(Seg, { label: "Joystick sensitivity", value: set.joySens || 1, options: [[0.6, "Low"], [1, "Normal"], [1.5, "High"], [2, "Max"]], onChange: (v) => commit((s) => (s.settings.joySens = v)) })),
         h(Toggle, { on: set.reduced, onChange: (v) => commit((s) => (s.settings.reduced = v)) }, "Reduced motion (no shake or strong flashes)"),
         IS_TOUCH ? h("p", { className: "note small" }, "Auto-fire is always on with touch controls.") : h(Toggle, { on: set.autofire, onChange: (v) => commit((s) => (s.settings.autofire = v)) }, "Auto-fire (no need to hold Space)"),
         h("p", { className: "note small" }, IS_TOUCH ? "Drag on the left side to move. Tap Blast for the special attack." : "Move: WASD or arrows. Shoot: Space. Special blast: E. Pause: Esc."))));
 
-  if (screen === "playing") overlay = h(React.Fragment, null, h("button", { className: "pausebtn", "aria-label": "Pause", onClick: pause }, h("span"), h("span")), IS_TOUCH && h(TouchControls, { input, game }));
+  if (screen === "playing") overlay = h(React.Fragment, null, h("button", { className: "pausebtn", "aria-label": "Pause", onClick: pause }, h("span"), h("span")), IS_TOUCH && h(TouchControls, { input, game, sens: set.joySens || 1 }));
   if (screen === "paused") overlay = h("div", { className: "center dim" }, h("div", { className: "panel menu narrow" }, h("h2", null, "Paused"),
     h(Btn, { main: true, auto: true, onClick: resume }, "Resume"),
     h(Btn, { onClick: retry }, game.current && game.current.mode === "endless" ? "Restart run" : "Restart level"),
@@ -574,7 +758,7 @@ function App() {
     h("table", null, h("tbody", null,
       h("tr", null, h("td", null, "Score"), h("td", null, fmt(result.score))), h("tr", null, h("td", null, "Clear bonus"), h("td", null, "+" + fmt(result.clear))),
       h("tr", null, h("td", null, "Health bonus"), h("td", null, "+" + fmt(result.health))), result.flawless > 0 && h("tr", null, h("td", null, "No-hit bonus"), h("td", null, "+" + fmt(result.flawless))),
-      h("tr", { className: "tot" }, h("td", null, "Level total"), h("td", null, fmt(result.levelTotal))), h("tr", null, h("td", null, "Run total"), h("td", null, fmt(result.runTotal))))),
+      h("tr", { className: "tot" }, h("td", null, "Level total"), h("td", null, fmt(result.levelTotal))), h("tr", null, h("td", null, "Run total"), h("td", null, fmt(result.runTotal))), h("tr", { className: "coinrow" }, h("td", null, "Coins earned"), h("td", null, "+" + (result.coins || 0))))),
     result.newAvatars.length > 0 && h("p", { className: "ok" }, "New avatar unlocked: " + result.newAvatars.join(", ")),
     h("p", { className: "note small", "aria-live": "polite" }, saveStatus),
     h("div", { className: "row" }, h(Btn, { main: true, auto: true, onClick: continueRun }, "Continue"), h(Btn, { onClick: toMenu }, "Main menu"))));
@@ -587,6 +771,7 @@ function App() {
     h("p", { className: "note" }, result.newBest ? "New best full campaign!" : "Best campaign total: " + fmt(save.campaign.bestTotal)),
     h("div", { className: "row" }, h(Btn, { main: true, auto: true, onClick: () => setScreen("campaign") }, "Replay a level"), h(Btn, { onClick: newRun }, "New campaign"), h(Btn, { onClick: toMenu }, "Main menu"))));
 
+  if (screen === "endless-result" && eres && !eres.coinShown) { eres.coinShown = true; }
   if (screen === "endless-result" && eres) {
     const st = eres.status, ft = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
     overlay = h("div", { className: "center dim" }, h("div", { className: "panel result" },
@@ -594,7 +779,7 @@ function App() {
       h("h2", null, "Run over"),
       h("p", { className: "big" }, fmt(eres.score)),
       h("table", null, h("tbody", null,
-        h("tr", null, h("td", null, "Survived"), h("td", null, ft(eres.survival))), h("tr", null, h("td", null, "Enemies defeated"), h("td", null, fmt(eres.kills))),
+        h("tr", null, h("td", null, "Survived"), h("td", null, ft(eres.survival))), h("tr", null, h("td", null, "Enemies defeated"), h("td", null, fmt(eres.kills))), eres.bosses ? h("tr", null, h("td", null, "Bosses defeated"), h("td", null, fmt(eres.bosses))) : null, h("tr", { className: "coinrow" }, h("td", null, "Coins earned"), h("td", null, "+" + (eres.coins || 0))),
         eres.best && h("tr", null, h("td", null, "Best score"), h("td", null, fmt(eres.best.best_score))),
         eres.best && eres.best.best_survival_ms != null && h("tr", null, h("td", null, "Longest survival"), h("td", null, ft(eres.best.best_survival_ms / 1000))),
         eres.day && h("tr", null, h("td", null, "Today’s rank"), h("td", null, eres.day.rank ? `#${eres.day.rank} of ${eres.day.players}` : "—")),
@@ -663,7 +848,7 @@ function Landing({ signedIn, onPlay, onCreate }) {
   const Board = ({ title, rows }) => h("div", { className: "lcard" }, h("h3", null, title),
     rows === null ? h("p", { className: "muted" }, "Loading…") : rows.length === 0 ? h("p", { className: "muted" }, "No ranked runs yet. The first verified score takes the top spot.") :
     h("ol", { className: "lboard" }, rows.map((r) => h("li", { key: r.rank }, h("span", { className: "rk" }, r.rank), h("img", { src: avatarPortrait(r.avatar), alt: "", width: 30, height: 30 }), h("span", { className: "un" }, r.username), h("span", { className: "sc" }, fmt(r.score)), h("span", { className: "tm" }, ft(r.survival_ms))))));
-  const cta = (big) => h("div", { className: "ctas" }, h("button", { className: "lbtn primary" + (big ? " lg" : ""), onClick: onPlay }, signedIn ? "Continue Playing" : "Play Now"), !signedIn && h("button", { className: "lbtn" + (big ? " lg" : ""), onClick: onCreate }, "Create Account"));
+  const cta = (big) => h("div", { className: "ctas" }, h("button", { className: "lbtn primary" + (big ? " lg" : ""), onClick: onPlay }, signedIn ? "Continue Playing" : "Play Now"), !signedIn && h("button", { className: "lbtn" + (big ? " lg" : ""), onClick: onCreate }, "Sign in"));
   return h("div", { className: "landing" },
     h("nav", { className: "lnav" }, h("a", { className: "brand", href: "#top" }, h("img", { src: "icon.svg", alt: "", width: 34, height: 34 }), "Nova Vanguard"),
       h("div", { className: "links" }, ["Gameplay", "Campaign", "Heroes", "Endless", "Rankings", "How to play"].map((t) => h("a", { key: t, href: "#" + t.toLowerCase().replace(/ /g, "-") }, t))),
@@ -680,7 +865,7 @@ function Landing({ signedIn, onPlay, onCreate }) {
     h("section", { id: "heroes", className: "lsec" }, h("h2", null, `${AVATARS.length} heroes`), h("p", { className: "muted" }, "Four are ready from the start. The rest unlock as you clear campaign levels. Every hero has the same hitbox, speed and damage, so picks are about style, not advantage."),
       h("div", { className: "herogrid" }, AVATARS.map((a) => h("figure", { key: a.id, className: "hcard" }, h("img", { src: avatarFull(a.id), alt: a.name, loading: "lazy" }), h("figcaption", null, h("b", null, a.name), h("span", null, a.title), h("small", { className: a.unlock ? "" : "starter" }, `${WEAPON_CATS[a.cat]} · ${a.unlock ? `Clear ${a.unlock} levels` : "Starter"}`)))))),
     h("section", { id: "endless", className: "lsec split" }, h("div", null, h("h2", null, "Endless mode"),
-      h("p", null, "Waves never stop and enemies never shoot, but contact hurts. Every 20 seconds a bigger wave hits, enemies toughen each minute, and every five minutes the swarm doubles and speeds up by half. Each defeat scores 5 to 30 points by enemy tier."),
+      h("p", null, "No sign-up needed: pick a nickname and play. Waves never stop and enemies never shoot, but contact hurts. Every 20 seconds a bigger wave hits, enemies toughen each minute, and every five minutes the swarm doubles and speeds up by half. Each defeat scores 5 to 30 points by enemy tier."),
       h("ul", { className: "ticks" }, h("li", null, "Every ranked run starts the same: three lives, one shot"), h("li", null, "Scores are rebuilt and verified by the server before they count"), h("li", null, "Daily and weekly boards reset at midnight and on Mondays, Manila time"))),
       h("div", { id: "rankings", className: "boards" }, board.err && h("p", { className: "muted" }, board.err), h(Board, { title: "Today’s top pilots", rows: board.daily }), h(Board, { title: "This week", rows: board.weekly }))),
     h("section", { id: "how-to-play", className: "lsec" }, h("h2", null, "How to play"),
@@ -732,7 +917,17 @@ function Rankings({ onBack }) {
 }
 
 // ============================================================ profile
-function Profile({ profile, save, onBack, onRenamed, onAvatars }) {
+function SecureGuest() {
+  const [email, setEmail] = useState(""), [pw, setPw] = useState(""), [pw2, setPw2] = useState(""), [msg, setMsg] = useState(""), [err, setErr] = useState(""), [tried, setTried] = useState(false), [busy, setBusy] = useState(false);
+  const go = async () => { setTried(true); setErr(""); if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) return setErr("Enter a valid email address."); if (passwordProblem(pw) || pw !== pw2) return;
+    setBusy(true); try { await Net.secureGuest(email.trim().toLowerCase(), pw); setMsg("Saved! Sign in with your nickname and this password on any device."); } catch (e) { setErr(friendlyError(e)); } finally { setBusy(false); } };
+  return h("div", { className: "secure" }, h("h3", null, "Keep your progress safe"), h("p", { className: "note small" }, "You’re playing as a guest. Add an email and password to sign in on other devices and recover your progress. Your nickname, scores and unlocks stay the same."),
+    msg ? h("p", { className: "ok" }, msg) : h(React.Fragment, null,
+      h("label", { className: "field" }, h("span", null, "Email"), h("input", { type: "email", autoComplete: "email", value: email, onChange: (e) => setEmail(e.target.value.trim()) })),
+      h(PasswordFields, { pw, setPw, pw2, setPw2, showErrors: tried }), err && h("p", { className: "err", role: "alert" }, err),
+      h(Btn, { small: true, main: true, disabled: busy, onClick: go }, busy ? "Saving…" : "Save my progress")));
+}
+function Profile({ profile, save, onBack, onRenamed, onAvatars, onSignOut }) {
   const [pw, setPw] = useState(""), [pw2, setPw2] = useState(""), [pwMsg, setPwMsg] = useState(""), [pwErr, setPwErr] = useState(""), [pwTried, setPwTried] = useState(false);
   const changePw = async () => { setPwTried(true); setPwErr(""); setPwMsg(""); if (passwordProblem(pw) || pw !== pw2) return; try { await Net.setPassword(pw); setPw(""); setPw2(""); setPwTried(false); setPwMsg("Password updated. Use it next time you sign in."); } catch (e) { setPwErr(friendlyError(e)); } };
   const [best, setBest] = useState(null); const [name, setName] = useState(profile ? profile.username : ""); const [msg, setMsg] = useState(""); const [err, setErr] = useState(""); const [busy, setBusy] = useState(false);
@@ -748,10 +943,12 @@ function Profile({ profile, save, onBack, onRenamed, onAvatars }) {
   return h(Page, { title: "Profile", onBack },
     h("div", { className: "cols2" },
       h("div", { className: "panel" },
-        h("div", { className: "who big" }, h(Portrait, { id: save.avatars.selected, size: 72 }), h("div", null, h("h3", null, profile.username), h("p", { className: "note small" }, `Signed in with ${Net.contactLabel()} (only you can see this)`))),
-        h("label", { className: "field" }, h("span", null, "Change username"), h("input", { value: name, maxLength: 20, onChange: (e) => setName(e.target.value.replace(/\s/g, "")) })),
+        h("div", { className: "who big" }, h(Portrait, { id: save.avatars.selected, size: 72 }), h("div", null, h("h3", null, profile.username), h("p", { className: "note small" }, profile.offline ? "Offline profile on this device" : Net.isGuest() ? "Guest profile on this device" : `Signed in with ${Net.contactLabel()} (only you can see this)`))),
+        profile.offline ? h("p", { className: "note" }, "You’re playing offline. Progress is saved on this device; connect to the internet and reload to play ranked Endless.") : null,
+        !profile.offline && h("label", { className: "field" }, h("span", null, "Change nickname"), h("input", { value: name, maxLength: 20, onChange: (e) => setName(e.target.value.replace(/\s/g, "")) })),
         err && h("p", { className: "err", role: "alert" }, err), msg && h("p", { className: "ok" }, msg),
-        h("div", { className: "row" }, h(Btn, { small: true, disabled: busy || name === profile.username, onClick: rename }, busy ? "Saving…" : "Save username"), h(Btn, { small: true, onClick: onAvatars }, "Change avatar"), h(Btn, { small: true, onClick: () => Net.signOut() }, "Sign out"))),
+        h("div", { className: "row" }, !profile.offline && h(Btn, { small: true, disabled: busy || name === profile.username, onClick: rename }, busy ? "Saving…" : "Save nickname"), h(Btn, { small: true, onClick: onAvatars }, "Change avatar"), h(Btn, { small: true, onClick: onSignOut }, profile.offline ? "Change nickname" : "Sign out")),
+        !profile.offline && Net.isGuest() && h(SecureGuest)),
       h("div", { className: "panel" }, h("h3", null, "Progress"),
         h("table", null, h("tbody", null,
           h("tr", null, h("td", null, "Campaign levels cleared"), h("td", null, `${completedCount(save)}/100`)),
@@ -760,9 +957,9 @@ function Profile({ profile, save, onBack, onRenamed, onAvatars }) {
           h("tr", null, h("td", null, "Endless best score"), h("td", null, best && best.best_score ? fmt(best.best_score) : "—")),
           h("tr", null, h("td", null, "Ranked endless runs"), h("td", null, best ? fmt(best.valid_runs) : "—")),
           h("tr", null, h("td", null, "Member since"), h("td", null, new Date(profile.created_at).toLocaleDateString())))),
-        h("h3", null, "Password"), h(PasswordFields, { pw, setPw, pw2, setPw2, label: "New password", showErrors: pwTried }),
-        pwErr && h("p", { className: "err", role: "alert" }, pwErr), pwMsg && h("p", { className: "ok" }, pwMsg),
-        h(Btn, { small: true, onClick: changePw }, "Update password"))));
+        !profile.offline && !Net.isGuest() && h(React.Fragment, null, h("h3", null, "Password"), h(PasswordFields, { pw, setPw, pw2, setPw2, label: "New password", showErrors: pwTried }),
+          pwErr && h("p", { className: "err", role: "alert" }, pwErr), pwMsg && h("p", { className: "ok" }, pwMsg),
+          h(Btn, { small: true, onClick: changePw }, "Update password")))));
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(h(App));

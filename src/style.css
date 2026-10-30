@@ -261,3 +261,27 @@ body.game { position: fixed; inset: 0; overflow: hidden; }
 .specialbtn .pips i { width: 11px; height: 11px; border-radius: 50%; background: rgba(10,30,40,.55); border: 2px solid rgba(10,30,40,.7); }
 .specialbtn .pips i.on { background: #ffffff; border-color: #0f2228; }
 .specialbtn:not(.ready) { opacity: .7; }
+
+.overlaybox { position: absolute; inset: 0; z-index: 5; }
+.secure { margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(160,190,255,.25); }
+
+/* ---------------- coins, shop, customise, multiplayer ---------------- */
+.coins { display: inline-flex; align-items: center; gap: 6px; font-weight: 800; color: #ffe08a; font-family: 'Exo 2', sans-serif; }
+.coin { display: inline-block; width: 14px; height: 14px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #fff6c8, #ffcf3a 45%, #b8860b); border: 1.5px solid #6a4a08; margin-right: 4px; vertical-align: -2px; }
+.shopgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; max-height: 300px; overflow-y: auto; margin: 10px 0; padding-right: 4px; }
+.shopitem { display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: 12px; background: rgba(20,14,50,.85); border: 1.5px solid rgba(160,190,255,.25); }
+.shopitem.have { opacity: .65; }
+.shopitem .si-text { flex: 1; display: flex; flex-direction: column; min-width: 0; font-size: 13px; }
+.shopitem .si-text b { font-size: 14px; }
+.swatch { width: 34px; height: 34px; border-radius: 10px; border: 2px solid #120c30; display: inline-flex; align-items: center; justify-content: center; font-style: normal; font-weight: 800; color: #fff; background: #3a3080; flex: none; }
+.custlayout { display: grid; grid-template-columns: 300px 1fr; gap: 12px; }
+.custopts { max-height: 380px; overflow-y: auto; }
+.custrow { margin-bottom: 9px; } .custrow > b { display: block; font-size: 13px; color: #c9c4f0; margin-bottom: 4px; }
+.chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.chip { font: inherit; font-size: 12px; padding: 5px 9px; border-radius: 999px; border: 1.5px solid rgba(160,190,255,.35); background: #261e5c; color: #f3eefc; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+.chip.on { background: #3ccfc4; color: #062a2e; border-color: #b8fffa; }
+.chip.locked { opacity: .8; border-style: dashed; } .chip:disabled { opacity: .4; cursor: not-allowed; }
+.chip small { font-size: 11px; color: #ffe08a; display: inline-flex; align-items: center; } .chip .dot { width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid #120c30; }
+.roomcode { font-family: 'Exo 2', monospace; font-size: 46px; font-weight: 800; letter-spacing: 8px; color: #8ff7ef; margin: 6px 0; text-align: center; }
+.countdown { font-family: 'Exo 2', sans-serif; font-size: 120px; font-weight: 800; color: #fff; text-shadow: 0 6px 0 #120c30, 0 0 40px rgba(94,242,242,.6); }
+.coinrow td { color: #ffe08a; font-weight: 800; }

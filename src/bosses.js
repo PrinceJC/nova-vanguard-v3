@@ -101,6 +101,20 @@ const A = {
     if (t < 0.6) { b.tele = b.mz; return; }
     if (once(b, "t", t, 0.6)) { for (let i = 0; i < o.n; i++) { const a = aim(g, b.mz.x, b.mz.y) + (i - (o.n - 1) / 2) * 0.3; shoot(g, b.mz.x, b.mz.y, a, 120 * g.diff, { big: true, r: 9, hp: 2, homing: 1.0, life: 6, torpedo: true }); } ev(g, "sfx", { name: "launch" }); }
   } }),
+  // lobbed bombs: a marked landing circle, then a burst (and a ring of slow shots). Damages only inside the circle.
+  bombs: (o) => ({ dur: o.dur || 2.6, tick(b, g, dt, t) {
+    if (t < 0.4) { b.tele = b.mz; return; }
+    for (let i = 0; i < o.n; i++) if (once(b, "b" + i, t, 0.4 + i * (o.gap || 0.25))) {
+      const p = g.player, tx = clamp(p.x + rand(-140, 140) * (i ? 1 : 0.4), 60, W - 220), ty = clamp(p.y + rand(-120, 120) * (i ? 1 : 0.4), 50, H - 50);
+      hazard(g, { type: "bomb", sx: b.mz.x, sy: b.mz.y, x: tx, y: ty, r: o.r || 46, tele: 1.0, act: 0.15, style: o.style || "bomb", ring: o.ring || 0,
+        onStart: (g2, h) => { explosion(g2, h.x, h.y, 1.1); if (h.ring) ring(g2, h.x, h.y, h.ring, 95 * g2.diff, Math.random(), { c: "m", gap: true }); ev(g2, "sfx", { name: "pop" }); } });
+      ev(g, "sfx", { name: "launch" });
+    }
+  } }),
+  blades: (o) => ({ dur: 2.8, tick(b, g, dt, t) {   // boomerang blades: fly out, then curve back
+    if (t < 0.45) { b.tele = b.mz; return; }
+    for (let i = 0; i < o.n; i++) if (once(b, "bl" + i, t, 0.45 + i * 0.35)) { const a = aim(g, b.mz.x, b.mz.y) + (i - (o.n - 1) / 2) * 0.35, sb = shoot(g, b.mz.x, b.mz.y, a, 260 * g.diff, { big: true, r: 15, c: "m", life: 6 }); if (sb) { sb.blade = true; sb.turnAt = 1.1; sb.life0 = 6; } ev(g, "sfx", { name: "dash" }); }
+  } }),
   open: (o) => ({ dur: (b) => ph(b, o.durs), start(b, g) { b.open = true; ev(g, "sfx", { name: "open" }); }, tick(b, g, dt, t) {
     if (o.ring && once(b, "r", t, 0.35)) { const c = b.core; ring(g, c.x, c.y, o.ring, 95 * g.diff, Math.random(), { gap: true, c: "m", big: true }); }
   }, end(b) { b.open = false; } }),
@@ -398,6 +412,34 @@ function buildProcBoss(spec) {
       b.body = b.alpha > 0.5 ? [{ ...body, r: body.r * 0.95 }] : [];
     },
   };
+}
+
+// ============================================================ Endless bosses (6, cycling; health from the shared rules)
+function endlessBossDef(kind) {
+  const base = { size: 240, phases: [0.5], rest: [0.85, 0.6], sprite: () => "eb_" + kind, kind,
+    move(b) { b.y = b.baseY + Math.sin(b.t * 0.55) * 110; b.y = clamp(b.y, 130, H - 130); },
+    layout(b) { b.core = bp(b, 130, 128); b.mz = bp(b, 40, 128); b.hits = b.alpha > 0.5 ? [{ x: b.core.x, y: b.core.y, r: 92, mult: 1 }] : []; b.body = b.alpha > 0.5 ? [{ x: b.core.x, y: b.core.y, r: 84 }] : []; } };
+  const defs = {
+    octo_queen: { name: "Octo Queen", pattern: [["jelly", "ink", "sweep"], ["jelly2", "ink", "ringburst", "sweep"]], attacks: {
+      jelly: A.bombs({ n: 4, style: "jelly", ring: 6 }), jelly2: A.bombs({ n: 6, style: "jelly", ring: 8, gap: 0.2, dur: 2.9 }), ink: A.spiral({ arms: 2, speed: 120, turn: 0.24 }), sweep: A.stream({ speed: 160 }), ringburst: A.ring({ n: 14, every: 0.8, speed: 110 }) } },
+    blade_sovereign: { name: "Blade Sovereign", spin: true, pattern: [["blades", "fan", "spin"], ["blades2", "lasers", "spin", "fan"]], attacks: {
+      blades: A.blades({ n: 3 }), blades2: A.blades({ n: 5 }), fan: A.fan({ tele: 0.5, times: [0.5, 1.2], n: 9, spread: 110, speed: 140, c: "m" }), spin: A.spiral({ arms: 4, speed: 130, turn: 0.3, every: 0.14 }), lasers: A.lasers({ count: 2 }) } },
+    hive_matriarch: { name: "Hive Matriarch", pattern: [["bees", "wall", "honey"], ["bees2", "honey2", "wall"]], attacks: {
+      bees: A.torpedo({ n: 3 }), bees2: A.torpedo({ n: 5 }), wall: A.wall({ speed: 130 }), honey: A.bombs({ n: 3, style: "honey", ring: 0, r: 52 }), honey2: A.bombs({ n: 5, style: "honey", ring: 6, r: 52 }) } },
+    magma_titan: { name: "Magma Titan", pattern: [["meteors", "lava", "erupt"], ["meteors2", "lava2", "erupt"]], attacks: {
+      meteors: A.strikes({ n: 4, kind: "debris" }), meteors2: A.strikes({ n: 4, kind: "debris", waves: 2, dur: 3.4 }), lava: A.bombs({ n: 4, style: "lava", ring: 8 }), lava2: A.bombs({ n: 6, style: "lava", ring: 10, gap: 0.2, dur: 2.9 }), erupt: A.ring({ n: 16, every: 0.7, speed: 115, big: true }) } },
+    mirror_wraith: { name: "Mirror Wraith", pattern: [["teleport", "shards", "mirror"], ["teleport", "mirror2", "shards", "teleport"]], attacks: {
+      teleport: A.teleport({ n: 9 }), shards: A.fan({ tele: 0.45, times: [0.45, 1.0, 1.55], dur: 2.2, n: 7, spread: 80, speed: 160, aimed: true, c: "m" }), mirror: A.lasers({ count: 2 }), mirror2: A.lasers({ count: 3 }) } },
+    frost_hydra: { name: "Frost Hydra", pattern: [["beams", "tri", "frost"], ["beams2", "tri", "frost2"]], attacks: {
+      beams: A.beams({ n: 2 }), beams2: A.beams({ n: 3 }), tri: A.lasers({ count: 3 }), frost: A.bombs({ n: 4, style: "frost", ring: 6 }), frost2: A.bombs({ n: 6, style: "frost", ring: 8, gap: 0.2, dur: 2.9 }) } },
+  };
+  return { ...base, ...defs[kind] };
+}
+function makeEndlessBoss(g, idx) {
+  const kind = ENDLESS_BOSS_KINDS[idx % ENDLESS_BOSS_KINDS.length], def = endlessBossDef(kind), hp = EndlessRules.bossHp(idx, g.t);
+  const b = { def, x: W + def.size / 2 + 60, y: H / 2, hx: W - 200, hp, max: hp, phase: 1, t: 0, atk: null, atkT: 0, rest: 1.0, idx: 0, endlessIdx: idx,
+    tm: {}, trans: 0, flash: 0, clink: 0, entering: true, parts: [], hits: [], body: [], open: false, dying: false, dieT: 0, alpha: 1, lock: false, tele: null, baseY: H / 2 };
+  def.layout(b, g); return b;
 }
 
 function orbPart(i, n, spr, hp, every_, respawn) {

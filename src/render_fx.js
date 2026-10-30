@@ -27,6 +27,7 @@ function drawGame(ctx, g, set, now) {
   if (Q > 1) drawMotes(ctx, g, now);
 
   for (const h of g.hz) drawHazard(ctx, h, g, now);
+  drawFastWarnings(ctx, g, now);
   for (const o of g.obs) drawObstacle(ctx, o, g, now);
   drawParticles(ctx, g, rm, Q, false);
   for (const k of g.pickups) drawPickup(ctx, k, now, Q);
@@ -34,13 +35,14 @@ function drawGame(ctx, g, set, now) {
   if (g.boss) drawBoss(ctx, g.boss, g, now);
   drawPlayerShots(ctx, g, Q);
   drawPlayer(ctx, g, set, now, Q);
-  if (g.blast) drawBlast(ctx, g.blast, rm);
+  if (g.blast) drawBlast(ctx, g.blast, rm, g, now);
   drawEnemyShots(ctx, g, Q);
   drawParticles(ctx, g, rm, Q, true);
   drawTexts(ctx, g);
   ctx.restore();
   if (g.flash > 0) { ctx.fillStyle = "#fff"; ctx.globalAlpha = rm ? Math.min(0.05, g.flash * 0.2) : Math.min(0.28, g.flash); ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
   drawHUD(ctx, g, set, now);
+  if (set.opponent) drawOpponentPanel(ctx, set.opponent, now);
 }
 const MOTES = Array.from({ length: 26 }, (_, i) => ({ x: (i * 397) % W, y: (i * 211) % H, s: 0.6 + (i % 5) * 0.35, sp: 1.3 + (i % 4) * 0.4 }));
 function drawMotes(ctx, g, now) {
@@ -49,21 +51,50 @@ function drawMotes(ctx, g, now) {
   ctx.globalAlpha = 1;
 }
 
+// ---------------- warnings for fast enemies (shown at the right edge ~1.2 s before they enter)
+const FAST_TYPES = { dart: 1, torpedo_bot: 1, drill_drone: 1, thorn_wasp: 1 };
+function drawFastWarnings(ctx, g, now) {
+  const list = [];
+  if (g.mode === "campaign") { for (const q of g.queue) if (!q.obs && FAST_TYPES[q.type] && q.at - g.t <= 1.2 && q.at >= g.t) list.push({ y: q.y, k: (q.at - g.t) / 1.2 }); }
+  else if (g.pending) { const c = endlessClock(g); for (const s of g.pending) { if (s.t - c > 1.2) break; if (FAST_TYPES[s.type]) list.push({ y: typeof s.y === "number" ? 40 + s.y * (H - 80) : s.y, k: Math.max(0, (s.t - c) / 1.2) }); } }
+  for (const w of list) {
+    const y = w.y === "top" ? 40 : w.y === "bottom" ? H - 40 : w.y, a = 0.55 + 0.45 * Math.sin(now / 60);
+    ctx.save(); ctx.globalAlpha = a; ctx.fillStyle = "rgba(255,63,122,0.18)"; ctx.fillRect(W - 120, y - 22, 120, 44);
+    ctx.fillStyle = "#ff3f7a"; ctx.beginPath(); ctx.moveTo(W - 50, y); ctx.lineTo(W - 22, y - 18); ctx.lineTo(W - 22, y + 18); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = "#ff3f7a"; ctx.setLineDash([8, 6]); ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(W - 60, y); ctx.lineTo(W - 60 - 220 * (1 - w.k), y); ctx.stroke(); ctx.setLineDash([]);
+    ctx.globalAlpha = 1; txt(ctx, "!", W - 32, y + 7, 20, "#ffffff", "center", 900); ctx.restore();
+  }
+}
+// ---------------- multiplayer: live opponent view (bottom-centre panel)
+function drawOpponentPanel(ctx, opp, now) {
+  const pw = 270, ph = 152, x0 = W / 2 - pw / 2, y0 = H - ph - 10, sc = pw / W;
+  ctx.save(); ctx.fillStyle = "rgba(10,8,30,0.82)"; roundRect(ctx, x0, y0, pw, ph, 12); ctx.fill(); ctx.strokeStyle = opp.dead ? "#ff6b8a" : "#7ff3ff"; ctx.lineWidth = 2; ctx.stroke();
+  ctx.beginPath(); roundRect(ctx, x0 + 4, y0 + 22, pw - 8, ph - 26, 9); ctx.clip();
+  ctx.fillStyle = "#151845"; ctx.fillRect(x0, y0, pw, ph); for (let i = 0; i < 18; i++) { ctx.fillStyle = "rgba(255,255,255,0.5)"; ctx.fillRect(x0 + ((i * 97 + now / 30) % pw), y0 + 26 + (i * 53) % (ph - 30), 1.5, 1.5); }
+  if (!opp.dead) { const av = AVATAR_BY_ID[opp.avatar] || AVATARS[0], px = x0 + (opp.x || 150) * sc, py = y0 + 22 + (opp.y || 270) * sc * 0.93, K = PLAYER_ART_K * sc * 1.6;
+    drawAvatarArt(ctx, av, "idle", px + (50 - SPRITE_ANCHOR[0]) * K, py + (33 - SPRITE_ANCHOR[1]) * K, K, now); }
+  else txt(ctx, "Defeated", W / 2, y0 + 90, 22, "#ff9ab0", "center", 900);
+  ctx.restore();
+  txt(ctx, (opp.name || "Opponent") + " · live", x0 + 10, y0 + 17, 13, "#c8f0ff");
+  for (let i = 0; i < 3; i++) heart(ctx, x0 + pw - 70 + i * 20, y0 + 4, 14, i < (opp.hp ?? 3) ? "#ff6b9a" : "#3a2a50");
+  txt(ctx, `${fmtTime(opp.t || 0)} · ${(opp.score || 0).toLocaleString()}`, x0 + pw - 10, y0 + ph - 8, 13, "#ffe08a", "right", 800);
+}
 // draws a hero (wings flap behind the body around the shoulder); cx, cy = centre of the body sprite in world units
 function drawAvatarArt(ctx, av, frame, cx, cy, K, now, o = {}) {
-  if (av.board === "wings") {
+  const key = av.key && SPR[`av_${av.key}_idle`] ? av.key : av.id;   // customised sprites (fall back to the base hero while they load)
+  if (av.board === "wings" || av.wings) {
     const flap = Math.sin(now / 150), px = cx + (WING_PIVOT[0] - 50) * K, py = cy + (WING_PIVOT[1] - 33) * K;
     ctx.save(); ctx.translate(px, py); ctx.rotate(-0.1 * flap); ctx.scale(1, 0.84 + 0.16 * flap); ctx.translate(-px, -py);
-    drawSprWH(ctx, `avw_${av.id}`, cx + (WING_VB[0] + WING_VB[2] / 2 - 50) * K, cy + (WING_VB[1] + WING_VB[3] / 2 - 33) * K, WING_VB[2] * K, WING_VB[3] * K, { alpha: o.alpha });
+    drawSprWH(ctx, `avw_${key}`, cx + (WING_VB[0] + WING_VB[2] / 2 - 50) * K, cy + (WING_VB[1] + WING_VB[3] / 2 - 33) * K, WING_VB[2] * K, WING_VB[3] * K, { alpha: o.alpha });
     ctx.restore();
   }
   const pu = o.pulse || 1;
-  drawSprWH(ctx, `av_${av.id}_${frame}`, cx, cy, 104 * K * pu, 70 * K * pu, { alpha: o.alpha, skew: o.skew, white: o.white });
+  drawSprWH(ctx, `av_${key}_${frame}`, cx, cy, 104 * K * pu, 70 * K * pu, { alpha: o.alpha, skew: o.skew, white: o.white });
 }
 
 // ============================================================ player (avatar) with animation states
 function drawPlayer(ctx, g, set, now, Q) {
-  const p = g.player, av = AVATAR_BY_ID[g.avatar] || AVATARS[0], sh = av.shot[0];
+  const p = g.player, av = g.av || AVATAR_BY_ID[g.avatar] || AVATARS[0], sh = av.shot[0];
   if (p.dead) {
     if (p.deadT > 1.3) return;
     const k = p.deadT / 1.3;
@@ -103,7 +134,7 @@ function drawPlayer(ctx, g, set, now, Q) {
 
 // ============================================================ projectiles
 function drawPlayerShots(ctx, g, Q) {
-  const av = AVATAR_BY_ID[g.avatar] || AVATARS[0], [col, core] = av.shot, cat = av.cat;
+  const av = g.av || AVATAR_BY_ID[g.avatar] || AVATARS[0], [col, core] = av.shot, cat = av.cat;
   for (const s of g.pbul) {
     ctx.save(); ctx.translate(s.x, s.y); ctx.rotate(Math.atan2(s.vy, s.vx));
     if (s.kind) { drawPowerShot(ctx, s, Q); ctx.restore(); continue; }
@@ -192,13 +223,38 @@ function drawEnemyShots(ctx, g, Q) {
 }
 
 // ============================================================ special blast wave (drawn at the exact damage radius)
-function drawBlast(ctx, B, rm) {
-  const a = Math.max(0, 1 - B.r / BLAST_MAX);
+function drawBomb(ctx, h, now) {   // marked landing circle + lobbed projectile
+  const k = Math.min(1, h.t / h.tele), col = { jelly: "#ff8ad8", honey: "#ffcf5c", lava: "#ff7a2a", frost: "#bfe9ff" }[h.style] || "#ff8a1f";
+  ctx.save(); ctx.strokeStyle = "#ff3fb4"; ctx.setLineDash([6, 5]); ctx.lineWidth = 2.5; ctx.globalAlpha = 0.5 + 0.4 * Math.sin(now / 60); ctx.beginPath(); ctx.arc(h.x, h.y, h.r, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
+  ctx.globalAlpha = 0.12 + 0.18 * k; ctx.fillStyle = "#ff3fb4"; ctx.beginPath(); ctx.arc(h.x, h.y, h.r * k, 0, TAU); ctx.fill(); ctx.globalAlpha = 1;
+  if (h.t < h.tele) { const x = h.sx + (h.x - h.sx) * k, y = h.sy + (h.y - h.sy) * k - Math.sin(k * Math.PI) * 120;
+    ctx.fillStyle = "#2a0a18"; ctx.beginPath(); ctx.arc(x, y, 13, 0, TAU); ctx.fill(); ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, 10, 0, TAU); ctx.fill();
+    if (h.style === "jelly") { ctx.strokeStyle = col; ctx.lineWidth = 2; for (let i = -1; i <= 1; i++) { ctx.beginPath(); ctx.moveTo(x + i * 5, y + 8); ctx.lineTo(x + i * 6, y + 18 + Math.sin(now / 80 + i) * 3); ctx.stroke(); } }
+    ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(x - 3, y - 3, 3, 0, TAU); ctx.fill(); }
+  ctx.restore();
+}
+function drawBlast(ctx, U, rm, g, now) {
+  const c = U.color || "#5ef2f2", u = U.u || 0;
   ctx.save();
-  ctx.fillStyle = "#5ef2f2"; ctx.globalAlpha = 0.08 * a; ctx.beginPath(); ctx.arc(B.x, B.y, B.r, 0, TAU); ctx.fill();
-  ctx.strokeStyle = "#5ef2f2"; ctx.lineWidth = 16; ctx.globalAlpha = 0.35 * a; ctx.beginPath(); ctx.arc(B.x, B.y, Math.max(1, B.r - 6), 0, TAU); ctx.stroke();
-  ctx.strokeStyle = "#e6ffff"; ctx.lineWidth = 6; ctx.globalAlpha = 0.95 * a; ctx.beginPath(); ctx.arc(B.x, B.y, B.r, 0, TAU); ctx.stroke();
-  if (!rm && B.r < 160) { ctx.fillStyle = "#ffffff"; ctx.globalAlpha = 0.6 * (1 - B.r / 160); ctx.beginPath(); ctx.arc(B.x, B.y, 26, 0, TAU); ctx.fill(); }
+  switch (U.type) {
+    case "cannonball": { const x = U.bx || U.x; drawGlow(ctx, c, x, U.y, 90, 0.6); ctx.fillStyle = "#1a1030"; ctx.beginPath(); ctx.arc(x, U.y, 48, 0, TAU); ctx.fill(); const gr = ctx.createRadialGradient(x - 14, U.y - 14, 4, x, U.y, 46); gr.addColorStop(0, "#ffffff"); gr.addColorStop(0.4, c); gr.addColorStop(1, "#1a1030"); ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(x, U.y, 44, 0, TAU); ctx.fill();
+      ctx.globalAlpha = 0.35; ctx.fillStyle = c; ctx.fillRect(U.x, U.y - 30, Math.max(0, x - U.x - 40), 60); break; }
+    case "laser": { const L = 1400, ex = U.x + Math.cos(U.ang || 0) * L, ey = U.y + Math.sin(U.ang || 0) * L; ctx.lineCap = "round"; ctx.strokeStyle = c; ctx.globalAlpha = 0.5; ctx.lineWidth = 34; ctx.beginPath(); ctx.moveTo(U.x, U.y); ctx.lineTo(ex, ey); ctx.stroke();
+      ctx.globalAlpha = 1; ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 10; ctx.beginPath(); ctx.moveTo(U.x, U.y); ctx.lineTo(ex, ey); ctx.stroke(); drawGlow(ctx, c, U.x, U.y, 40, 0.9); break; }
+    case "tsunami": { const x = U.wx || U.x; ctx.fillStyle = c; ctx.globalAlpha = 0.28; ctx.fillRect(Math.max(0, x - 160), 0, 160, H); ctx.globalAlpha = 0.9; ctx.beginPath(); ctx.moveTo(x - 30, 0);
+      for (let y = 0; y <= H; y += 18) ctx.lineTo(x + Math.sin(y / 30 + now / 60) * 18, y); ctx.lineTo(x - 30, H); ctx.closePath(); ctx.fill(); ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 4; ctx.beginPath(); for (let y = 0; y <= H; y += 18) ctx.lineTo(x + Math.sin(y / 30 + now / 60) * 18, y); ctx.stroke(); break; }
+    case "solar": { const y = U.sy || 0; ctx.fillStyle = c; ctx.globalAlpha = 0.25; ctx.fillRect(0, Math.max(0, y - 140), W, 140); ctx.globalAlpha = 0.95; ctx.fillRect(0, y - 14, W, 28); ctx.fillStyle = "#ffffff"; ctx.fillRect(0, y - 5, W, 10); break; }
+    case "blackhole": { const r = U.collapsed ? 430 * Math.min(1, (u - 0.75) / 0.2) : 30 + u * 40; ctx.fillStyle = "#05030f"; ctx.beginPath(); ctx.arc(U.cx, U.cy, U.collapsed ? 30 : r, 0, TAU); ctx.fill();
+      ctx.strokeStyle = c; ctx.lineWidth = 4; for (let i = 0; i < 4; i++) { ctx.globalAlpha = 0.6 - i * 0.12; ctx.beginPath(); ctx.arc(U.cx, U.cy, (U.collapsed ? r : 60 + i * 60 + ((now / 4) % 60)), 0, TAU); ctx.stroke(); } drawGlow(ctx, c, U.cx, U.cy, 70, 0.6); break; }
+    case "lightning": { ctx.strokeStyle = c; ctx.lineWidth = 5; ctx.globalAlpha = 0.85; let px = U.x, py = U.y; for (let i = 0; i < U.chain.length; i++) { if (u < i * 0.04) break; const e = U.chain[i]; ctx.beginPath(); ctx.moveTo(px, py); const n = 6; for (let k = 1; k <= n; k++) ctx.lineTo(px + (e.x - px) * k / n + (k < n ? rand(-14, 14) : 0), py + (e.y - py) * k / n + (k < n ? rand(-14, 14) : 0)); ctx.stroke(); drawGlow(ctx, c, e.x, e.y, 26, 0.8); px = e.x; py = e.y; }
+      ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2; ctx.globalAlpha = 1; drawGlow(ctx, c, U.x, U.y, 30, 0.9); break; }
+    case "lances": { for (const s of U.spears) { ctx.save(); ctx.translate(s.x, s.y); ctx.rotate(s.a); ctx.fillStyle = c; ctx.globalAlpha = 0.4; ctx.fillRect(-90, -6, 90, 12); ctx.globalAlpha = 1; ctx.fillStyle = "#ffffff"; ctx.beginPath(); ctx.moveTo(22, 0); ctx.lineTo(-10, -8); ctx.lineTo(-10, 8); ctx.closePath(); ctx.fill(); ctx.strokeStyle = c; ctx.lineWidth = 2; ctx.stroke(); ctx.restore(); } break; }
+    case "meteor": { for (const m of U.meteors) { if (m.done) continue; const k = Math.max(0, (u - m.ti) / 0.25); if (u < m.ti) { ctx.strokeStyle = c; ctx.globalAlpha = 0.5; ctx.setLineDash([5, 5]); ctx.beginPath(); ctx.arc(m.x, m.y, 85, 0, TAU); ctx.stroke(); ctx.setLineDash([]); continue; }
+      const x = m.x - 160 * (1 - k), y = m.y - 420 * (1 - k); ctx.globalAlpha = 1; drawGlow(ctx, c, x, y, 34, 0.8); ctx.fillStyle = "#ffffff"; ctx.beginPath(); ctx.arc(x, y, 12, 0, TAU); ctx.fill(); ctx.strokeStyle = c; ctx.lineWidth = 6; ctx.globalAlpha = 0.6; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - 60, y - 150); ctx.stroke(); } break; }
+    case "crystal": { for (const s of U.shards) { if (s.done) continue; ctx.save(); ctx.translate(s.x, s.y); ctx.rotate(u * 20); ctx.fillStyle = c; ctx.beginPath(); ctx.moveTo(10, 0); ctx.lineTo(0, -5); ctx.lineTo(-10, 0); ctx.lineTo(0, 5); ctx.closePath(); ctx.fill(); ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.4; ctx.stroke(); ctx.restore(); } break; }
+    default: { const a = Math.max(0, 1 - (U.r || 0) / BLAST_MAX); ctx.fillStyle = c; ctx.globalAlpha = 0.08 * a; ctx.beginPath(); ctx.arc(U.x, U.y, U.r || 0, 0, TAU); ctx.fill();
+      ctx.strokeStyle = c; ctx.lineWidth = 16; ctx.globalAlpha = 0.35 * a; ctx.beginPath(); ctx.arc(U.x, U.y, Math.max(1, (U.r || 0) - 6), 0, TAU); ctx.stroke(); ctx.strokeStyle = "#e6ffff"; ctx.lineWidth = 6; ctx.globalAlpha = 0.95 * a; ctx.beginPath(); ctx.arc(U.x, U.y, U.r || 0, 0, TAU); ctx.stroke(); }
+  }
   ctx.restore();
 }
 
@@ -343,7 +399,7 @@ function drawBoss(ctx, b, g, now) {
   if (b.dying) ctx.translate(rand(-3, 3), rand(-3, 3));
   if (d.procedural === "mech") drawMech(ctx, b, Math.min(1, white), now);
   else if (d.procedural) drawSerpent(ctx, b, white > 0.5, now);
-  else drawSpr(ctx, d.sprite(b), b.x, b.y, d.size, { white: Math.min(1, white), alpha });
+  else drawSpr(ctx, d.sprite(b), b.x, b.y, d.size, { white: Math.min(1, white), alpha, rot: d.spin ? b.t * 1.6 : 0 });
   ctx.restore();
   if (b.hp / b.max < 0.35 && !b.dying && alpha > 0.5) {
     for (let i = 0; i < 4; i++) {

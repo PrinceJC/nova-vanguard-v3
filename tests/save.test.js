@@ -1,6 +1,5 @@
 const assert = require("assert");
-const { AVATARS, AVATAR_BY_ID, avatarUnlocked } = require("../src/avatars.js");
-Object.assign(globalThis, { AVATARS, AVATAR_BY_ID, avatarUnlocked });
+Object.assign(globalThis, require("../src/avatars.js"));
 const S = require("../src/net.js");
 let pass = 0; const t = (n, f) => { f(); pass++; console.log("  ✓", n); };
 
@@ -34,4 +33,11 @@ t("phone numbers: Philippine formats normalise to +63 9XX…", () => {
 });
 t("phone numbers: clear errors for wrong length, prefix or empty", () => { assert.match(S.normalizePhone("+63", "").error, /Enter/); assert.match(S.normalizePhone("+63", "917123").error, /6 digits/); assert.match(S.normalizePhone("+63", "8171234567").error, /start with 9/); assert.strictEqual(S.normalizePhone("+1", "415 555 0123").e164, "+14155550123"); assert.strictEqual(S.normalizePhone("+65", "8123 4567").error, ""); });
 t("password rules", () => { assert(S.passwordProblem("short1")); assert(S.passwordProblem("longpassword")); assert(S.passwordProblem("12345678")); assert.strictEqual(S.passwordProblem("nova2026x"), ""); });
+t("shop data: coins, purchases and customisation are sanitised; bought heroes unlock", () => {
+  const s = S.sanitizeSave({ shop: { coins: 1234.9, owned: ["av:rook", "skin:lumi_gold", "part:hat:crown", "hack:everything", 5], custom: { lumi: { skin: "lumi_gold", hat: "crown", weapon: "laser-gun", color: "azure" }, nobody: { hat: "crown" }, kai: { skin: "lumi_gold" } } } });
+  assert.strictEqual(s.shop.coins, 1234); assert.deepStrictEqual(s.shop.owned, ["av:rook", "skin:lumi_gold", "part:hat:crown"]);
+  assert.deepStrictEqual(s.shop.custom.lumi, { skin: "lumi_gold", hat: "crown", color: "azure" }); assert(!s.shop.custom.nobody && !s.shop.custom.kai);
+  assert(s.avatars.unlocked.includes("rook"), "bought hero unlocked"); assert.strictEqual(S.sanitizeSave({ settings: { joySens: 9 } }).settings.joySens, 2);
+  const m = S.mergeSaves(S.sanitizeSave({ shop: { coins: 50, owned: ["part:hat:crown"] } }), S.sanitizeSave({ shop: { coins: 90, owned: ["skin:lumi_gold"] } })); assert.strictEqual(m.shop.coins, 90); assert.strictEqual(m.shop.owned.length, 2);
+});
 console.log(`\n${pass} save/migration tests passed`);
